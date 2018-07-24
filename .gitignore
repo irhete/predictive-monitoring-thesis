@@ -1,0 +1,7 @@
+__pycache__
+results
+cv_results_revision
+.ipynb_checkpoints
+*.pyc
+stats.txt
+dataset_confs_private.py
