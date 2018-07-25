@@ -1,14 +1,13 @@
-from DatasetManager import DatasetManager
-import EncoderFactory
-import BucketFactory
-import ClassifierFactory
+"""This script trains, evaluates, and measures the computation times of a predictive model for outcome-oriented predictive process monitoring.
 
-import pandas as pd
-import numpy as np
+Usage:
+  experiments_performance.py <dataset> <method> <classifier> <n_iter>
 
-from sklearn.metrics import roc_auc_score
-from sklearn.pipeline import FeatureUnion, Pipeline
-from sklearn.preprocessing import StandardScaler
+Example:
+    experiments_performance.py bpic2012_cancelled single_laststate xgboost 5
+  
+Author: Irene Teinemaa [irene.teinemaa@gmail.com]
+"""
 
 import time
 import os
@@ -17,6 +16,17 @@ from sys import argv
 import pickle
 import csv
 
+import pandas as pd
+import numpy as np
+
+from sklearn.metrics import roc_auc_score
+from sklearn.pipeline import FeatureUnion, Pipeline
+from sklearn.preprocessing import StandardScaler
+
+from DatasetManager import DatasetManager
+import EncoderFactory
+import BucketFactory
+import ClassifierFactory
 
 PARAMS_DIR = "cv_results_revision"
 RESULTS_DIR = "results_performance"
@@ -86,6 +96,7 @@ for dataset_name in datasets:
 
     # split into training and test
     train, test = dataset_manager.split_data_strict(data, train_ratio, split="temporal")
+    overall_class_ratio = dataset_manager.get_class_ratio(train)
     
     # generate test prefix log
     start_test_prefix_generation = time.time()
@@ -146,7 +157,8 @@ for dataset_name in datasets:
             # initialize pipeline for sequence encoder and classifier
             start_offline_time_fit = time.time()
             feature_combiner = FeatureUnion([(method, EncoderFactory.get_encoder(method, **dataset_manager.get_cls_encoder_args())) for method in methods])
-            cls = ClassifierFactory.get_classifier(cls_method, current_args, random_state, min_cases_for_training)
+            cls = ClassifierFactory.get_classifier(cls_method, current_args, random_state, min_cases_for_training, 
+                                                   overall_class_ratio)
 
             if cls_method == "svm" or cls_method == "logit":
                 pipeline = Pipeline([('encoder', feature_combiner), ('scaler', StandardScaler()), ('cls', cls)])

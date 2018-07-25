@@ -12,11 +12,12 @@ class StateBasedBucketer(object):
         self.n_states = 0
         
     
-    def fit(self, X, y=None):
+    def fit(self, X, preencoded=False):
         
-        dt_encoded = self.encoder.fit_transform(X)
+        if not preencoded:
+            X = self.encoder.fit_transform(X)
         
-        self.dt_states = dt_encoded.drop_duplicates()
+        self.dt_states = X.drop_duplicates()
         self.dt_states = self.dt_states.assign(state = range(len(self.dt_states)))
         
         self.n_states = len(self.dt_states)
@@ -24,17 +25,18 @@ class StateBasedBucketer(object):
         return self
     
     
-    def predict(self, X, y=None):
+    def predict(self, X, preencoded=False):
         
-        dt_encoded = self.encoder.transform(X)
+        if not preencoded:
+            X = self.encoder.transform(X)
         
-        dt_transformed = pd.merge(dt_encoded, self.dt_states, how='left')
+        dt_transformed = pd.merge(X, self.dt_states, how='left')
         dt_transformed.fillna(-1, inplace=True)
         
         return dt_transformed["state"].astype(int).as_matrix()
     
     
-    def fit_predict(self, X, y=None):
+    def fit_predict(self, X, preencoded=False):
         
-        self.fit(X)
-        return self.predict(X)
+        self.fit(X, preencoded)
+        return self.predict(X, preencoded)

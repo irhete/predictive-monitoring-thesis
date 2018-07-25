@@ -1,14 +1,13 @@
-from DatasetManager import DatasetManager
-import EncoderFactory
-import BucketFactory
-import ClassifierFactory
+"""This script trains and evaluates a predictive model for outcome-oriented predictive process monitoring.
 
-import pandas as pd
-import numpy as np
+Usage:
+  experiments.py <dataset> <method> <classifier>
 
-from sklearn.metrics import roc_auc_score
-from sklearn.pipeline import FeatureUnion, Pipeline
-from sklearn.preprocessing import StandardScaler
+Example:
+    experiments.py bpic2012_cancelled single_laststate xgboost
+  
+Author: Irene Teinemaa [irene.teinemaa@gmail.com]
+"""
 
 import os
 import sys
@@ -18,6 +17,18 @@ import csv
 
 import cProfile
 import pstats
+
+import pandas as pd
+import numpy as np
+
+from sklearn.metrics import roc_auc_score
+from sklearn.pipeline import FeatureUnion, Pipeline
+from sklearn.preprocessing import StandardScaler
+
+from DatasetManager import DatasetManager
+import EncoderFactory
+import BucketFactory
+import ClassifierFactory
 
 
 PARAMS_DIR = "cv_results_revision"
@@ -89,11 +100,10 @@ for dataset_name in datasets:
 
     # split into training and test
     train, test = dataset_manager.split_data_strict(data, train_ratio, split="temporal")
+    overall_class_ratio = dataset_manager.get_class_ratio(train)
     
-    # generate test prefix log
+    # generate prefix logs
     dt_test_prefixes = dataset_manager.generate_prefix_data(test, min_prefix_length, max_prefix_length)
-            
-    # create train prefix log
     dt_train_prefixes = dataset_manager.generate_prefix_data(train, min_prefix_length, max_prefix_length, gap)
             
     # Bucketing prefixes based on control flow
@@ -129,7 +139,7 @@ for dataset_name in datasets:
 
         # initialize pipeline for sequence encoder and classifier
         feature_combiner = FeatureUnion([(method, EncoderFactory.get_encoder(method, **dataset_manager.get_cls_encoder_args())) for method in methods])
-        cls = ClassifierFactory.get_classifier(cls_method, current_args, random_state, min_cases_for_training)
+        cls = ClassifierFactory.get_classifier(cls_method, current_args, random_state, min_cases_for_training, overall_class_ratio)
 
         if cls_method == "svm" or cls_method == "logit":
             pipeline = Pipeline([('encoder', feature_combiner), ('scaler', StandardScaler()), ('cls', cls)])

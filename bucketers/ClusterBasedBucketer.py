@@ -10,23 +10,25 @@ class ClusterBasedBucketer(object):
         self.clustering = clustering
         
     
-    def fit(self, X, y=None):
+    def fit(self, X, preencoded=False):
         
-        dt_encoded = self.encoder.fit_transform(X)
+        if not preencoded:
+            X = self.encoder.fit_transform(X)
         
-        self.clustering.fit(dt_encoded)
+        self.clustering.fit(X)
         
         return self
     
     
-    def predict(self, X, y=None):
+    def predict(self, X, preencoded=False):
         
-        dt_encoded = self.encoder.transform(X)
+        if not preencoded:
+            X = self.encoder.transform(X)
         
-        return self.clustering.predict(dt_encoded)
+        return self.clustering.predict(X)
     
     
-    def fit_predict(self, X, y=None):
+    def fit_predict(self, X, preencoded=False):
         
-        self.fit(X)
-        return self.predict(X)
+        self.fit(X, preencoded)
+        return self.predict(X, preencoded)
