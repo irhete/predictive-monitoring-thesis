@@ -54,6 +54,8 @@ def create_and_evaluate_model(args):
         # fit text models and transform for each event
         if text_method == "nb":
             text_transformer_args["pos_label"] = dataset_manager.pos_label
+        elif text_method in ["pv", "lda"]:
+            text_transformer_args["random_seed"] = 22
         text_transformer = EncoderFactory.get_encoder(text_method, text_transformer_args=text_transformer_args)
         dt_train_text = text_transformer.fit_transform(train_chunk[dataset_manager.text_cols], train_chunk[dataset_manager.label_col])
         dt_test_text = text_transformer.transform(test_chunk[dataset_manager.text_cols])
@@ -94,7 +96,7 @@ def create_and_evaluate_model(args):
     # save current trial results
     for k, v in cls_args.items():
         all_results.append((trial_nr, k, v, -1, score / n_splits))
-    for k, v in text_args.items():
+    for k, v in text_transformer_args.items():
         all_results.append((trial_nr, k, v, -1, score / n_splits))
 
     return {'loss': -score / n_splits, 'status': STATUS_OK, 'model': cls}

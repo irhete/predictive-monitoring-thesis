@@ -255,7 +255,7 @@ class NBLogCountRatioTransformer(TransformerMixin):
             r_selected = range(len(r))
         else:
             r_sorted = np.argsort(r)
-            r_selected = np.concatenate([r_sorted[:self.nr_selected/2], r_sorted[-self.nr_selected/2:]])
+            r_selected = np.concatenate([r_sorted[:int(np.floor(self.nr_selected/2))], r_sorted[-int(np.ceil(self.nr_selected/2)):]])
         self.r_selected = r_selected
         
         if self.nr_selected=="all":
