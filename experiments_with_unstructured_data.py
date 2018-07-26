@@ -1,10 +1,10 @@
-"""This script trains and evaluates a predictive model for outcome-oriented predictive process monitoring.
+"""This script trains and evaluates a predictive model for outcome-oriented predictive process monitoring with structured and unstructured data.
 
 Usage:
   experiments.py <dataset> <method> <classifier>
 
 Example:
-    experiments.py bpic2012_cancelled single_laststate xgboost
+    experiments.py bpic2012_cancelled single_laststate_bong xgboost
   
 Author: Irene Teinemaa [irene.teinemaa@gmail.com]
 """
@@ -40,7 +40,7 @@ cls_method = argv[3]
 
 gap = 1
 
-bucket_method, cls_encoding = method_name.split("_")
+bucket_method, cls_encoding, text_method = method_name.split("_")
 
 
 if bucket_method == "state":
@@ -69,6 +69,8 @@ train_ratio = 0.8
 random_state = 22
 min_cases_for_training = 1
 
+#text_transformer_args = {"ngram_max": 1, "tfidf": False, "nr_selected": 100}
+
 # create results directory
 if not os.path.exists(os.path.join(RESULTS_DIR)):
     os.makedirs(os.path.join(RESULTS_DIR))
@@ -83,7 +85,7 @@ for dataset_name in datasets:
         continue
         
     with open(optimal_params_filename, "rb") as fin:
-        args = pickle.load(fin)
+        args_all = pickle.load(fin)
     
     # read the data
     dataset_manager = DatasetManager(dataset_name)
@@ -102,10 +104,23 @@ for dataset_name in datasets:
     train, test = dataset_manager.split_data_strict(data, train_ratio, split="temporal")
     overall_class_ratio = dataset_manager.get_class_ratio(train)
     
+    # fit text models and transform for each event
+    text_transformer_args = args_all["text_transformer_args"]
+    if text_method == "nb":
+        text_transformer_args["pos_label"] = dataset_manager.pos_label
+    text_transformer = EncoderFactory.get_encoder(text_method, text_transformer_args=text_transformer_args)
+    #text_transformer = EncoderFactory.get_encoder(text_method, text_transformer_args=text_transformer_args)
+    dt_train_text = text_transformer.fit_transform(train[dataset_manager.text_cols], train[dataset_manager.label_col])
+    dt_test_text = text_transformer.transform(test[dataset_manager.text_cols])
+    train = pd.concat([train.drop(dataset_manager.text_cols, axis=1), dt_train_text], axis=1)
+    test = pd.concat([test.drop(dataset_manager.text_cols, axis=1), dt_test_text], axis=1)
+    text_cols = list(dt_train_text.columns)
+    del dt_train_text, dt_test_text
+    
     # generate prefix logs
     dt_test_prefixes = dataset_manager.generate_prefix_data(test, min_prefix_length, max_prefix_length)
     dt_train_prefixes = dataset_manager.generate_prefix_data(train, min_prefix_length, max_prefix_length, gap)
-            
+    
     # Bucketing prefixes based on control flow
     bucketer_args = {'encoding_method': bucket_encoding, 
                      'case_id_col': dataset_manager.case_id_col, 
@@ -113,12 +128,12 @@ for dataset_name in datasets:
                      'num_cols': [], 
                      'random_state': random_state}
     if bucket_method == "cluster":
-        bucketer_args["n_clusters"] = int(args["n_clusters"])
+        bucketer_args["n_clusters"] = int(args_all["bucket_args"]["n_clusters"])
     cls_encoder_args = {'case_id_col': dataset_manager.case_id_col, 
                         'static_cat_cols': dataset_manager.static_cat_cols,
                         'static_num_cols': dataset_manager.static_num_cols, 
                         'dynamic_cat_cols': dataset_manager.dynamic_cat_cols,
-                        'dynamic_num_cols': dataset_manager.dynamic_num_cols, 
+                        'dynamic_num_cols': dataset_manager.dynamic_num_cols + text_cols,
                         'fillna': True}
     bucketer = BucketFactory.get_bucketer(bucket_method, **bucketer_args)
     bucket_assignments_train = bucketer.fit_predict(dt_train_prefixes)
@@ -128,7 +143,8 @@ for dataset_name in datasets:
     test_y_all = []
     nr_events_all = []
     for bucket in set(bucket_assignments_test):
-        current_args = args if bucket_method != "prefix" else args[bucket]
+        current_args = args_all["cls_args"] if bucket_method != "prefix" else args_all["cls_args"][bucket]
+        #current_args = args_all if bucket_method != "prefix" else args_all[bucket]
         current_args["n_estimators"] = 500
             
         # select prefixes for the given bucket

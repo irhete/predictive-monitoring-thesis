@@ -23,6 +23,7 @@ class DatasetManager:
         self.static_cat_cols = dataset_confs.static_cat_cols[self.dataset_name]
         self.dynamic_num_cols = dataset_confs.dynamic_num_cols[self.dataset_name]
         self.static_num_cols = dataset_confs.static_num_cols[self.dataset_name]
+        self.text_cols = dataset_confs.text_cols.get(self.dataset_name, [])
         
         self.sorting_cols = [self.timestamp_col, self.activity_col]
         
@@ -164,10 +165,3 @@ class DatasetManager:
             current_test_names = dt_for_splitting[self.case_id_col][test_index]
             yield (current_train_names, current_test_names)
             
-    def get_cls_encoder_args(self):
-        return {'case_id_col': self.case_id_col, 
-                'static_cat_cols': self.static_cat_cols,
-                'static_num_cols': self.static_num_cols, 
-                'dynamic_cat_cols': self.dynamic_cat_cols,
-                'dynamic_num_cols': self.dynamic_num_cols, 
-                'fillna': True}

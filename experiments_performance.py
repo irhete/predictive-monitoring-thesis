@@ -125,6 +125,12 @@ for dataset_name in datasets:
                          'random_state': random_state}
         if bucket_method == "cluster":
             bucketer_args["n_clusters"] = int(args["n_clusters"])
+        cls_encoder_args = {'case_id_col': dataset_manager.case_id_col, 
+                        'static_cat_cols': dataset_manager.static_cat_cols,
+                        'static_num_cols': dataset_manager.static_num_cols, 
+                        'dynamic_cat_cols': dataset_manager.dynamic_cat_cols,
+                        'dynamic_num_cols': dataset_manager.dynamic_num_cols, 
+                        'fillna': True}
         bucketer = BucketFactory.get_bucketer(bucket_method, **bucketer_args)
 
         start_offline_time_bucket = time.time()
@@ -156,7 +162,7 @@ for dataset_name in datasets:
 
             # initialize pipeline for sequence encoder and classifier
             start_offline_time_fit = time.time()
-            feature_combiner = FeatureUnion([(method, EncoderFactory.get_encoder(method, **dataset_manager.get_cls_encoder_args())) for method in methods])
+            feature_combiner = FeatureUnion([(method, EncoderFactory.get_encoder(method, **cls_encoder_args)) for method in methods])
             cls = ClassifierFactory.get_classifier(cls_method, current_args, random_state, min_cases_for_training, 
                                                    overall_class_ratio)
 
