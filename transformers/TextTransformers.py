@@ -123,7 +123,7 @@ class PVTransformer(TransformerMixin):
         np.random.seed(self.random_seed)
         for epoch in range(self.epochs):
             np.random.shuffle(train_documents)
-            self.pv_model.train(train_documents)
+            self.pv_model.train(train_documents, epochs=self.pv_model.iter, total_examples=self.pv_model.corpus_count)
             
         return self
 

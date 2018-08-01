@@ -1,11 +1,16 @@
 import sys
 
-import dataset_confs
-
 import pandas as pd
 import numpy as np
 
 from sklearn.model_selection import StratifiedKFold
+from sklearn.preprocessing import MinMaxScaler
+try:
+    from keras.preprocessing.sequence import pad_sequences
+except ImportError:
+    print("Could not load CUDA")
+
+import dataset_confs
 
 
 class DatasetManager:
@@ -27,6 +32,9 @@ class DatasetManager:
         
         self.sorting_cols = [self.timestamp_col, self.activity_col]
         
+        self.scaler = None
+        self.encoded_cols = None
+        
     
     def read_dataset(self):
         # read dataset
@@ -39,23 +47,6 @@ class DatasetManager:
 
         return data
 
-
-    def split_data(self, data, train_ratio, split="temporal", seed=22):  
-        # split into train and test using temporal split
-
-        grouped = data.groupby(self.case_id_col)
-        start_timestamps = grouped[self.timestamp_col].min().reset_index()
-        if split == "temporal":
-            start_timestamps = start_timestamps.sort_values(self.timestamp_col, ascending=True, kind="mergesort")
-        elif split == "random":
-            np.random.seed(seed)
-            start_timestamps = start_timestamps.reindex(np.random.permutation(start_timestamps.index))
-        train_ids = list(start_timestamps[self.case_id_col])[:int(train_ratio*len(start_timestamps))]
-        train = data[data[self.case_id_col].isin(train_ids)].sort_values(self.timestamp_col, ascending=True, kind='mergesort')
-        test = data[~data[self.case_id_col].isin(train_ids)].sort_values(self.timestamp_col, ascending=True, kind='mergesort')
-
-        return (train, test)
-    
     def split_data_strict(self, data, train_ratio, split="temporal"):  
         # split into train and test using temporal split and discard events that overlap the periods
         data = data.sort_values(self.sorting_cols, ascending=True, kind='mergesort')
@@ -68,21 +59,6 @@ class DatasetManager:
         split_ts = test[self.timestamp_col].min()
         train = train[train[self.timestamp_col] < split_ts]
         return (train, test)
-    
-    def split_data_discard(self, data, train_ratio, split="temporal"):  
-        # split into train and test using temporal split and discard events that overlap the periods
-        data = data.sort_values(self.sorting_cols, ascending=True, kind='mergesort')
-        grouped = data.groupby(self.case_id_col)
-        start_timestamps = grouped[self.timestamp_col].min().reset_index()
-        start_timestamps = start_timestamps.sort_values(self.timestamp_col, ascending=True, kind='mergesort')
-        train_ids = list(start_timestamps[self.case_id_col])[:int(train_ratio*len(start_timestamps))]
-        train = data[data[self.case_id_col].isin(train_ids)].sort_values(self.sorting_cols, ascending=True, kind='mergesort')
-        test = data[~data[self.case_id_col].isin(train_ids)].sort_values(self.sorting_cols, ascending=True, kind='mergesort')
-        split_ts = test[self.timestamp_col].min()
-        overlapping_cases = train[train[self.timestamp_col] >= split_ts][self.case_id_col].unique()
-        train = train[~train[self.case_id_col].isin(overlapping_cases)]
-        return (train, test)
-    
     
     def split_val(self, data, val_ratio, split="random", seed=22):  
         # split into train and test using temporal split
@@ -97,7 +73,6 @@ class DatasetManager:
         val = data[data[self.case_id_col].isin(val_ids)].sort_values(self.sorting_cols, ascending=True, kind="mergesort")
         train = data[~data[self.case_id_col].isin(val_ids)].sort_values(self.sorting_cols, ascending=True, kind="mergesort")
         return (train, val)
-
 
     def generate_prefix_data(self, data, min_length, max_length, gap=1):
         # generate prefix data (each possible prefix becomes a trace)
@@ -116,7 +91,6 @@ class DatasetManager:
         dt_prefixes['case_length'] = dt_prefixes['case_length'].apply(lambda x: min(max_length, x))
         
         return dt_prefixes
-
 
     def get_pos_case_length_quantile(self, data, quantile=0.90):
         return int(np.ceil(data[data[self.label_col]==self.pos_label].groupby(self.case_id_col).size().quantile(quantile)))
@@ -165,3 +139,80 @@ class DatasetManager:
             current_test_names = dt_for_splitting[self.case_id_col][test_index]
             yield (current_train_names, current_test_names)
             
+    def encode_data_for_lstm(self, data):
+        data = data.sort_values(self.sorting_cols, ascending=True, kind='mergesort')
+        
+        num_cols = self.dynamic_num_cols + self.static_num_cols
+        cat_cols = self.dynamic_cat_cols + self.static_cat_cols
+        
+        # scale numeric cols
+        if self.scaler is None:
+            self.scaler = MinMaxScaler()
+            dt_all = pd.DataFrame(self.scaler.fit_transform(data[num_cols]), index=data.index, columns=num_cols)
+        else:
+            dt_all = pd.DataFrame(self.scaler.transform(data[num_cols]), index=data.index, columns=num_cols)
+            
+        # one-hot encode categorical cols
+        dt_cat = pd.get_dummies(data[cat_cols])
+        
+        # merge
+        dt_all = pd.concat([dt_all, dt_cat], axis=1)
+        dt_all[self.case_id_col] = data[self.case_id_col]
+        dt_all[self.label_col] = data[self.label_col].apply(lambda x: 1 if x == self.pos_label else 0)
+        dt_all[self.timestamp_col] = data[self.timestamp_col]
+        
+        # add missing columns if necessary
+        if self.encoded_cols is None:
+            self.encoded_cols = dt_all.columns
+        else:
+            for col in self.encoded_cols:
+                if col not in dt_all.columns:
+                    dt_all[col] = 0
+        
+        return dt_all[self.encoded_cols]
+    
+    def generate_3d_data(self, data, max_len):
+        data = data.sort_values(self.timestamp_col, ascending=True, kind="mergesort").groupby(self.case_id_col).head(max_len)
+        grouped = data.sort_values(self.timestamp_col, ascending=True, kind="mergesort").groupby(self.case_id_col)
+
+        data_dim = data.shape[1] - 3
+        n_cases = data.shape[0]
+        
+        X = np.zeros((n_cases, max_len, data_dim), dtype=np.float32)
+        y = np.zeros((n_cases, 2), dtype=np.float32)
+
+        idx = 0
+        # each prefix will be a separate instance
+        for _, group in grouped:
+            group = group.sort_values(self.timestamp_col, ascending=True, kind="mergesort")
+            label = group[self.label_col].iloc[0]
+            group = group.as_matrix()
+            for i in range(1, len(group) + 1):
+                X[idx] = pad_sequences(group[np.newaxis,:i,:-3], maxlen=max_len, dtype=np.float32)
+                y[idx, label] = 1
+                idx += 1
+        return (X, y)
+    
+    def generate_3d_data_for_prefix_length(self, data, max_len, nr_events):
+        grouped = data.groupby(self.case_id_col)
+        data_dim = data.shape[1] - 3
+        n_cases = np.sum(grouped.size() >= nr_events)
+        
+        # encode only prefixes of this length
+        X = np.zeros((n_cases, max_len, data_dim), dtype=np.float32)
+        y = np.zeros((n_cases, 2), dtype=np.float32)
+        case_ids = []
+        
+        idx = 0
+        for case_id, group in grouped:
+            if len(group) < nr_events:
+                continue
+            group = group.sort_values(self.timestamp_col, ascending=True, kind="mergesort")
+            label = group[self.label_col].iloc[0]
+            group = group.as_matrix()
+            X[idx] = pad_sequences(group[np.newaxis,:nr_events,:-3], maxlen=max_len, dtype=np.float32)
+            y[idx, label] = 1
+            case_ids.append(case_id)
+            idx += 1
+
+        return (X, y, case_ids)

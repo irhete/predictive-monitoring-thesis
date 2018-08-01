@@ -5,6 +5,7 @@ activity_col = {}
 resource_col = {}
 timestamp_col = {}
 label_col = {}
+text_cols = {}
 pos_label = {}
 neg_label = {}
 dynamic_cat_cols = {}
@@ -215,4 +216,3 @@ for formula in range(1,5):
     static_cat_cols[dataset] = ["Diagnosis", "Treatment code", "Diagnosis code", "Specialism code", "Diagnosis Treatment Combination ID"]
     dynamic_num_cols[dataset] = ["Number of executions", "hour", "weekday", "month", "timesincemidnight", "timesincelastevent", "timesincecasestart", "event_nr", "open_cases"]
     static_num_cols[dataset] = ["Age"]
-    
