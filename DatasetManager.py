@@ -216,3 +216,27 @@ class DatasetManager:
             idx += 1
 
         return (X, y, case_ids)
+    
+    def data_generator(self, data, max_len, batch_size):
+        grouped = data.sort_values(self.timestamp_col, ascending=True, kind="mergesort").groupby(self.case_id_col)
+
+        data_dim = data.shape[1] - 3
+        while 1:
+            X = np.zeros((batch_size, max_len, data_dim), dtype=np.float32)
+            y = np.zeros((batch_size, 2), dtype=np.float32)
+            idx = 0
+            for _, group in grouped:
+                group = group.sort_values(self.timestamp_col, ascending=True, kind="mergesort")
+                label = group[self.label_col].iloc[0]
+                group = group.as_matrix()
+                for i in range(1, len(group) + 1):
+                    X[idx] = pad_sequences(group[np.newaxis,:i,:-3], maxlen=max_len, dtype=np.float32)
+                    y[idx, label] = 1
+                    idx += 1
+                    
+                    if idx >= batch_size:
+                        yield {'main_input': X}, {'outcome_output': y}
+                        X = np.zeros((batch_size, max_len, data_dim), dtype=np.float32)
+                        y = np.zeros((batch_size, 2), dtype=np.float32)
+                        idx = 0
+            yield {'main_input': X[:idx,:]}, {'outcome_output': y[:idx,:]}

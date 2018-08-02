@@ -30,7 +30,7 @@ from keras.layers.core import Dense
 from keras.layers.recurrent import LSTM
 from keras.layers import Input
 from keras.optimizers import Nadam, RMSprop
-from keras.callbacks import EarlyStopping, ModelCheckpoint, ReduceLROnPlateau
+from keras.callbacks import ReduceLROnPlateau
 from keras.layers.normalization import BatchNormalization
 from sklearn.calibration import CalibratedClassifierCV
 from sklearn.metrics import roc_auc_score
@@ -53,7 +53,7 @@ with open(optimal_params_filename, "rb") as fin:
 lstmsize = int(params['lstmsize'])
 dropout = float(params['dropout'])
 n_layers = int(params['n_layers'])
-batch_size = int(params['batch_size'])
+batch_size = 2**int(params['batch_size'])
 optimizer = params['optimizer']
 learning_rate = float(params['learning_rate'])
 nb_epoch = int(params['nb_epoch'])
@@ -90,13 +90,9 @@ del data
 dt_train = dataset_manager.encode_data_for_lstm(train)
 del train
 data_dim = dt_train.shape[1] - 3
-X, y = dataset_manager.generate_3d_data(dt_train, max_len)
-del dt_train
 
 dt_val = dataset_manager.encode_data_for_lstm(val)
 del val
-X_val, y_val = dataset_manager.generate_3d_data(dt_val, max_len)
-del dt_val
 
 dt_test = dataset_manager.encode_data_for_lstm(test)
 del test
@@ -138,11 +134,13 @@ elif optimizer == "rmsprop":
 
 model.compile(loss={'outcome_output':'binary_crossentropy'}, optimizer=opt)
 
-early_stopping = EarlyStopping(monitor='val_loss', patience=7)
-lr_reducer = ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=10, verbose=0, mode='auto', epsilon=0.0001, cooldown=0, min_lr=0)
+lr_reducer = ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=7, verbose=0, mode='auto', epsilon=0.0001, cooldown=0, min_lr=0)
 
-history = model.fit({'main_input': X}, {'outcome_output':y}, validation_data=(X_val, y_val), verbose=2,
-                    callbacks=[early_stopping, lr_reducer], batch_size=batch_size, epochs=nb_epoch)
+history = model.fit_generator(dataset_manager.data_generator(dt_train, max_len, batch_size),
+                              validation_data=dataset_manager.data_generator(dt_val, max_len, batch_size),
+                              verbose=2, callbacks=[lr_reducer],
+                              steps_per_epoch=int(np.ceil(len(dt_train) / batch_size)), 
+                              validation_steps=int(np.ceil(len(dt_val) / batch_size)), epochs=nb_epoch)
 
 if "calibrate" in cls_method:
     n_cases, time_dim, n_features = X_val.shape

@@ -15,9 +15,6 @@ from sys import argv
 import pickle
 import csv
 
-import cProfile
-import pstats
-
 import pandas as pd
 import numpy as np
 
@@ -74,8 +71,6 @@ if not os.path.exists(os.path.join(RESULTS_DIR)):
     os.makedirs(os.path.join(RESULTS_DIR))
     
 for dataset_name in datasets:
-    pr = cProfile.Profile()
-    pr.enable()
     
     # load optimal params
     optimal_params_filename = os.path.join(PARAMS_DIR, "optimal_params_%s_%s_%s.pickle" % (cls_method, dataset_name, method_name))
@@ -159,11 +154,6 @@ for dataset_name in datasets:
         preds = pipeline.predict_proba(dt_test_bucket)
         preds_all.extend(preds)
 
-    pr.disable()
-    pr.dump_stats("stats.txt")
-    p = pstats.Stats('stats.txt')
-    print(p.sort_stats('time').print_stats(10))
-        
     # write results
     outfile = os.path.join(RESULTS_DIR, "results_%s_%s_%s_gap%s.csv" % (cls_method, dataset_name, method_name, gap))
     with open(outfile, 'w') as csvfile:

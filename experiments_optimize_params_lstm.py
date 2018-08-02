@@ -80,13 +80,19 @@ def create_and_evaluate_model(args):
 
     model.compile(loss={'outcome_output':'binary_crossentropy'}, optimizer=opt)
 
-    early_stopping = EarlyStopping(monitor='val_loss', patience=7)
-    lr_reducer = ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=10, verbose=0, mode='auto', epsilon=0.0001, cooldown=0, min_lr=0)
+    early_stopping = EarlyStopping(monitor='val_loss', patience=10)
+    lr_reducer = ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=7, verbose=0, mode='auto', epsilon=0.0001, cooldown=0, min_lr=0)
     
-    history = model.fit({'main_input': X}, {'outcome_output':y}, validation_data=(X_val, y_val), verbose=2, 
-                        batch_size=2**args['batch_size'], callbacks=[early_stopping, lr_reducer], epochs=nb_epoch)
-
+    history = model.fit_generator(dataset_manager.data_generator(dt_train, max_len, 2**args['batch_size']),
+                                  validation_data=dataset_manager.data_generator(dt_val, max_len, 2**args['batch_size']),
+                                  verbose=2, callbacks=[early_stopping, lr_reducer],
+                                  steps_per_epoch=int(np.ceil(len(dt_train) / 2**args['batch_size'])), 
+                                  validation_steps=int(np.ceil(len(dt_val) / 2**args['batch_size'])), epochs=nb_epoch)
+    
     val_losses = [history.history['val_loss'][epoch] for epoch in range(len(history.history['loss']))]
+
+    del model
+    
     val_losses = val_losses[5:] # don't consider the first few epochs
     best_epoch = np.argmin(val_losses)
     
@@ -94,7 +100,7 @@ def create_and_evaluate_model(args):
     for k, v in args.items():
         all_results.append((trial_nr, k, v, -1, val_losses[best_epoch]))
 
-    return {'loss': val_losses[best_epoch], 'status': STATUS_OK, 'model': model, 'best_epoch': best_epoch+5}
+    return {'loss': val_losses[best_epoch], 'status': STATUS_OK, 'best_epoch': best_epoch+5}
 
 
 dataset_name = argv[1]
@@ -123,14 +129,14 @@ del data
     
 dt_train = dataset_manager.encode_data_for_lstm(train)
 del train
+dt_train = dt_train.sort_values(dataset_manager.timestamp_col, ascending=True, 
+                                kind="mergesort").groupby(dataset_manager.case_id_col).head(max_len)
 data_dim = dt_train.shape[1] - 3
-X, y = dataset_manager.generate_3d_data(dt_train, max_len)
-del dt_train
 
 dt_val = dataset_manager.encode_data_for_lstm(val)
 del val
-X_val, y_val = dataset_manager.generate_3d_data(dt_val, max_len)
-del dt_val
+dt_val = dt_val.sort_values(dataset_manager.timestamp_col, ascending=True, 
+                            kind="mergesort").groupby(dataset_manager.case_id_col).head(max_len)
 
 space = {'lstmsize': scope.int(hp.qloguniform('lstmsize', np.log(10), np.log(150), 1)),
          'dropout': hp.uniform("dropout", 0, 0.3),
