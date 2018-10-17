@@ -112,8 +112,8 @@ for dataset_name in datasets:
     #text_transformer = EncoderFactory.get_encoder(text_method, text_transformer_args=text_transformer_args)
     dt_train_text = text_transformer.fit_transform(train[dataset_manager.text_cols], train[dataset_manager.label_col])
     dt_test_text = text_transformer.transform(test[dataset_manager.text_cols])
-    train = pd.concat([train.drop(dataset_manager.text_cols, axis=1), dt_train_text], axis=1)
-    test = pd.concat([test.drop(dataset_manager.text_cols, axis=1), dt_test_text], axis=1)
+    train = pd.concat([train.drop(dataset_manager.text_cols, axis=1), dt_train_text], axis=1, sort=False)
+    test = pd.concat([test.drop(dataset_manager.text_cols, axis=1), dt_test_text], axis=1, sort=False)
     text_cols = list(dt_train_text.columns)
     del dt_train_text, dt_test_text
     

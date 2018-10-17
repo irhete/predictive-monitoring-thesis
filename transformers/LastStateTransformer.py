@@ -31,7 +31,7 @@ class LastStateTransformer(TransformerMixin):
         # transform cat cols
         if len(self.cat_cols) > 0:
             dt_cat = pd.get_dummies(dt_last[self.cat_cols])
-            dt_transformed = pd.concat([dt_transformed, dt_cat], axis=1)
+            dt_transformed = pd.concat([dt_transformed, dt_cat], axis=1, sort=False)
         
         # fill NA with 0 if requested
         if self.fillna:

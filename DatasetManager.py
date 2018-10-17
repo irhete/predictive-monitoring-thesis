@@ -44,9 +44,27 @@ class DatasetManager:
 
         data = pd.read_csv(dataset_confs.filename[self.dataset_name], sep=";", dtype=dtypes)
         data[self.timestamp_col] = pd.to_datetime(data[self.timestamp_col])
+        
+        for col in self.text_cols:
+            data[col] = data[col].fillna("")
 
         return data
 
+    def split_data(self, data, train_ratio, split="temporal", seed=22):  
+        # split into train and test using temporal split
+        data = data.sort_values(self.sorting_cols, ascending=True, kind='mergesort')
+        grouped = data.groupby(self.case_id_col)
+        start_timestamps = grouped[self.timestamp_col].min().reset_index()
+        if split == "temporal":
+            start_timestamps = start_timestamps.sort_values(self.timestamp_col, ascending=True, kind='mergesort')
+        elif split == "random":
+            np.random.seed(seed)
+            start_timestamps = start_timestamps.reindex(np.random.permutation(start_timestamps.index))
+        train_ids = list(start_timestamps[self.case_id_col])[:int(train_ratio*len(start_timestamps))]
+        train = data[data[self.case_id_col].isin(train_ids)].sort_values(self.sorting_cols, ascending=True, kind='mergesort')
+        test = data[~data[self.case_id_col].isin(train_ids)].sort_values(self.sorting_cols, ascending=True, kind='mergesort')
+        return (train, test)
+    
     def split_data_strict(self, data, train_ratio, split="temporal"):  
         # split into train and test using temporal split and discard events that overlap the periods
         data = data.sort_values(self.sorting_cols, ascending=True, kind='mergesort')
@@ -73,6 +91,19 @@ class DatasetManager:
         val = data[data[self.case_id_col].isin(val_ids)].sort_values(self.sorting_cols, ascending=True, kind="mergesort")
         train = data[~data[self.case_id_col].isin(val_ids)].sort_values(self.sorting_cols, ascending=True, kind="mergesort")
         return (train, val)
+    
+    def split_chunks(self, data, n_chunks, seed=22):  
+        grouped = data.groupby(self.case_id_col)
+        start_timestamps = grouped[self.timestamp_col].min().reset_index()
+        np.random.seed(seed)
+        start_timestamps = start_timestamps.reindex(np.random.permutation(start_timestamps.index))
+        chunk_size = int(np.ceil(len(start_timestamps) / n_chunks))
+        dt_chunks = []
+        for i in range(n_chunks):
+            val_ids = list(start_timestamps[self.case_id_col])[i*chunk_size:(i+1)*chunk_size]
+            val = data[data[self.case_id_col].isin(val_ids)].sort_values(self.sorting_cols, ascending=True, kind="mergesort")
+            dt_chunks.append(val)
+        return dt_chunks
 
     def generate_prefix_data(self, data, min_length, max_length, gap=1):
         # generate prefix data (each possible prefix becomes a trace)
@@ -86,7 +117,7 @@ class DatasetManager:
             tmp["orig_case_id"] = tmp[self.case_id_col]
             tmp[self.case_id_col] = tmp[self.case_id_col].apply(lambda x: "%s_%s"%(x, nr_events))
             tmp["prefix_nr"] = nr_events
-            dt_prefixes = pd.concat([dt_prefixes, tmp], axis=0)
+            dt_prefixes = pd.concat([dt_prefixes, tmp], axis=0, sort=False)
         
         dt_prefixes['case_length'] = dt_prefixes['case_length'].apply(lambda x: min(max_length, x))
         
@@ -156,7 +187,7 @@ class DatasetManager:
         dt_cat = pd.get_dummies(data[cat_cols])
         
         # merge
-        dt_all = pd.concat([dt_all, dt_cat], axis=1)
+        dt_all = pd.concat([dt_all, dt_cat], axis=1, sort=False)
         dt_all[self.case_id_col] = data[self.case_id_col]
         dt_all[self.label_col] = data[self.label_col].apply(lambda x: 1 if x == self.pos_label else 0)
         dt_all[self.timestamp_col] = data[self.timestamp_col]
@@ -239,4 +270,5 @@ class DatasetManager:
                         X = np.zeros((batch_size, max_len, data_dim), dtype=np.float32)
                         y = np.zeros((batch_size, 2), dtype=np.float32)
                         idx = 0
-            yield {'main_input': X[:idx,:]}, {'outcome_output': y[:idx,:]}
+            if idx > 0:
+                yield {'main_input': X[:idx,:]}, {'outcome_output': y[:idx,:]}

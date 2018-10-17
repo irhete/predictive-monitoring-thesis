@@ -56,7 +56,7 @@ def create_and_evaluate_model(args):
             preds_all = pd.concat([preds_all, pd.DataFrame({'predicted': preds,
                                                             'run': current_run,
                                                             'idx': range(len(preds))})], 
-                                  axis=0)
+                                  axis=0, sort=False)
 
             score_auc += roc_auc_score(test_y, preds)
     

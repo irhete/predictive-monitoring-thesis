@@ -34,11 +34,11 @@ def evaluate_model_cost(args):
         tmp = dt_preds[(dt_preds.case_id.isin(unprocessed_case_ids)) & (dt_preds.prefix_nr == nr_events)]
         tmp = tmp[tmp.predicted_proba >= conf_threshold]
         tmp["prediction"] = 1
-        dt_final = pd.concat([dt_final, tmp], axis=0)
+        dt_final = pd.concat([dt_final, tmp], axis=0, sort=False)
         unprocessed_case_ids = unprocessed_case_ids.difference(tmp.case_id)
     tmp = dt_preds[(dt_preds.case_id.isin(unprocessed_case_ids)) & (dt_preds.prefix_nr == 1)]
     tmp["prediction"] = 0
-    dt_final = pd.concat([dt_final, tmp], axis=0)
+    dt_final = pd.concat([dt_final, tmp], axis=0, sort=False)
 
     case_lengths = dt_preds.groupby("case_id").prefix_nr.max().reset_index()
     case_lengths.columns = ["case_id", "case_length"]

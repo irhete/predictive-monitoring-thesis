@@ -56,13 +56,22 @@ def create_and_evaluate_model(args):
             text_transformer_args["pos_label"] = dataset_manager.pos_label
         elif text_method in ["pv", "lda"]:
             text_transformer_args["random_seed"] = 22
-        text_transformer = EncoderFactory.get_encoder(text_method, text_transformer_args=text_transformer_args)
-        dt_train_text = text_transformer.fit_transform(train_chunk[dataset_manager.text_cols], train_chunk[dataset_manager.label_col])
-        dt_test_text = text_transformer.transform(test_chunk[dataset_manager.text_cols])
-        train_chunk = pd.concat([train_chunk.drop(dataset_manager.text_cols, axis=1), dt_train_text], axis=1)
-        test_chunk = pd.concat([test_chunk.drop(dataset_manager.text_cols, axis=1), dt_test_text], axis=1)
-        text_cols = list(dt_train_text.columns)
-        del dt_train_text, dt_test_text
+        
+        text_cols = []
+        for col in dataset_manager.text_cols:
+            train_chunk[col] = train_chunk[col].fillna("")
+            test_chunk[col] = test_chunk[col].fillna("")
+        
+            text_transformer = EncoderFactory.get_encoder(text_method, text_transformer_args=text_transformer_args)
+            dt_train_text = text_transformer.fit_transform(train_chunk[[col]], train_chunk[dataset_manager.label_col])
+            curent_text_cols = ["%s_%s" % (col, text_col) for text_col in dt_train_text.columns]
+            dt_train_text.columns = curent_text_cols
+            dt_test_text = text_transformer.transform(test_chunk[[col]])
+            dt_test_text.columns = curent_text_cols
+            train_chunk = pd.concat([train_chunk.drop(col, axis=1), dt_train_text], axis=1, sort=False)
+            test_chunk = pd.concat([test_chunk.drop(col, axis=1), dt_test_text], axis=1, sort=False)
+            text_cols.extend(curent_text_cols)
+            del dt_train_text, dt_test_text
         
         cls_encoder_args = {'case_id_col': dataset_manager.case_id_col, 
                     'static_cat_cols': dataset_manager.static_cat_cols,
@@ -109,7 +118,10 @@ text_method = argv[4]
 cls_method = argv[5]
 n_iter = int(argv[6])
 
-train_ratio = 0.8
+if dataset_ref in ["crm2", "github"]:
+    train_ratio = 0.5
+else:
+    train_ratio = 0.8
 n_splits = 3
 random_state = 22
 min_cases_for_training = 1
@@ -153,7 +165,10 @@ for dataset_name in datasets:
         max_prefix_length = min(40, dataset_manager.get_pos_case_length_quantile(data, 0.90))
 
     # split into training and test
-    train, _ = dataset_manager.split_data_strict(data, train_ratio, split="temporal")
+    if dataset_name in ["github", "crm2"]:
+        train, _ = dataset_manager.split_data(data, train_ratio, split="random", seed=22)
+    else:
+        train, _ = dataset_manager.split_data_strict(data, train_ratio, split="temporal")
     
     # prepare chunks for CV
     class_ratios = []

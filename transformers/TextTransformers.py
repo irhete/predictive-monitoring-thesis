@@ -124,18 +124,17 @@ class PVTransformer(TransformerMixin):
         for epoch in range(self.epochs):
             np.random.shuffle(train_documents)
             self.pv_model.train(train_documents, epochs=self.pv_model.iter, total_examples=self.pv_model.corpus_count)
-            
+          
         return self
 
     
     def fit_transform(self, X, y=None):
         self.fit(X)
-        
         nrow = X.shape[0]
         ncol = X.shape[1]
         
-        train_X = self.pv_model.docvecs[range(nrow*ncol)]
-        train_X = np.hstack(np.vsplit(train_X, ncol))
+        train_X = [self.pv_model.docvecs[i] for i in range(nrow*ncol)]
+        train_X = np.hstack(np.vsplit(np.array(train_X), ncol))
         colnames = ["pv%s_event%s"%(vec+1, event+1) for event in range(ncol) for vec in range(self.size)]
 
         train_X = pd.DataFrame(train_X, columns=colnames, index=X.index)
@@ -144,7 +143,6 @@ class PVTransformer(TransformerMixin):
     
     def transform(self, X):
         ncol = X.shape[1]
-            
         test_comments = X.values.flatten('F')
         vecs = [self.pv_model.infer_vector(comment.split()) for comment in test_comments]
         test_X = np.hstack(np.vsplit(np.array(vecs), ncol))

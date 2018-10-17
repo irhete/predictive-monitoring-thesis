@@ -83,14 +83,18 @@ def create_and_evaluate_model(args):
     early_stopping = EarlyStopping(monitor='val_loss', patience=10)
     lr_reducer = ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=7, verbose=0, mode='auto', epsilon=0.0001, cooldown=0, min_lr=0)
     
-    history = model.fit_generator(dataset_manager.data_generator(dt_train, max_len, 2**args['batch_size']),
-                                  validation_data=dataset_manager.data_generator(dt_val, max_len, 2**args['batch_size']),
-                                  verbose=2, callbacks=[early_stopping, lr_reducer],
-                                  steps_per_epoch=int(np.ceil(len(dt_train) / 2**args['batch_size'])), 
-                                  validation_steps=int(np.ceil(len(dt_val) / 2**args['batch_size'])), epochs=nb_epoch)
+    #history = model.fit_generator(dataset_manager.data_generator(dt_train, max_len, 2**args['batch_size']),
+    #                              validation_data=dataset_manager.data_generator(dt_val, max_len, 2**args['batch_size']),
+    #                              verbose=2, callbacks=[early_stopping, lr_reducer],
+    #                              steps_per_epoch=int(np.ceil(len(dt_train) / 2**args['batch_size'])), 
+    #                              validation_steps=int(np.ceil(len(dt_val) / 2**args['batch_size'])), epochs=nb_epoch)
+    
+    history = model.fit({'main_input': X}, {'outcome_output':y}, validation_data=(X_val, y_val), verbose=2,
+                        callbacks=[early_stopping, lr_reducer], batch_size=2**args['batch_size'], epochs=nb_epoch)
+
     
     val_losses = [history.history['val_loss'][epoch] for epoch in range(len(history.history['loss']))]
-
+    #K.clear_session()
     del model
     
     val_losses = val_losses[5:] # don't consider the first few epochs
@@ -117,6 +121,8 @@ random_state = 22
 dataset_manager = DatasetManager(dataset_name)
 data = dataset_manager.read_dataset()
 train, _ = dataset_manager.split_data_strict(data, train_ratio)
+#if "bpic2017" in dataset_name or "traffic" in dataset_name:
+#    train, _ = dataset_manager.split_data_strict(train, 0.625) # this makes it use 50% of the original data
 train, val = dataset_manager.split_val(train, val_ratio)
 
 if "traffic_fines" in dataset_name:
@@ -132,11 +138,15 @@ del train
 dt_train = dt_train.sort_values(dataset_manager.timestamp_col, ascending=True, 
                                 kind="mergesort").groupby(dataset_manager.case_id_col).head(max_len)
 data_dim = dt_train.shape[1] - 3
+X, y = dataset_manager.generate_3d_data(dt_train, max_len)
+del dt_train
 
 dt_val = dataset_manager.encode_data_for_lstm(val)
 del val
 dt_val = dt_val.sort_values(dataset_manager.timestamp_col, ascending=True, 
                             kind="mergesort").groupby(dataset_manager.case_id_col).head(max_len)
+X_val, y_val = dataset_manager.generate_3d_data(dt_val, max_len)
+del dt_val
 
 space = {'lstmsize': scope.int(hp.qloguniform('lstmsize', np.log(10), np.log(150), 1)),
          'dropout': hp.uniform("dropout", 0, 0.3),

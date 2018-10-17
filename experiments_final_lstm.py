@@ -173,7 +173,7 @@ for nr_events in range(1, max_len+1):
 
     current_results = pd.DataFrame({"dataset": dataset_name, "method": method_name, "cls": cls_method,
                                     "nr_events": nr_events, "predicted": preds, "actual": y[:,1], "case_id": case_ids})
-    detailed_results = pd.concat([detailed_results, current_results], axis=0)
+    detailed_results = pd.concat([detailed_results, current_results], axis=0, sort=False)
     
     preds_all.extend(preds)
     test_y_all.extend(y[:,1])

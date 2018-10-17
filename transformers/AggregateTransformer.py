@@ -42,8 +42,11 @@ class AggregateTransformer(TransformerMixin):
         
         # concatenate
         if len(self.num_cols) > 0:
-            dt_transformed = pd.concat([dt_transformed, dt_numeric], axis=1)
-            del dt_numeric
+            if len(self.cat_cols) > 0:
+                dt_transformed = pd.concat([dt_transformed, dt_numeric], axis=1, sort=False)
+                del dt_numeric
+            else:
+                dt_transformed = dt_numeric
         
         # fill missing values with 0-s
         if self.fillna:

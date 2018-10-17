@@ -31,7 +31,7 @@ class PreviousStateTransformer(TransformerMixin):
         # transform cat cols
         if len(self.cat_cols) > 0:
             dt_cat = pd.get_dummies(dt_last[self.cat_cols])
-            dt_transformed = pd.concat([dt_transformed, dt_cat], axis=1)
+            dt_transformed = pd.concat([dt_transformed, dt_cat], axis=1, sort=False)
 
         # add 0 rows where previous value did not exist
         dt_transformed = dt_transformed.reindex(X.groupby(self.case_id_col).first().index, fill_value=0)

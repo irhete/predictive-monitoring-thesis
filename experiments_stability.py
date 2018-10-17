@@ -178,7 +178,7 @@ for dataset_name in datasets:
         
         case_ids = list(dt_test_bucket.groupby(dataset_manager.case_id_col).first().index)
         current_results = pd.DataFrame({"dataset": dataset_name, "cls": cls_method, "params": method_name, "nr_events": bucket, "predicted": preds, "actual": test_y, "case_id": case_ids})
-        detailed_results = pd.concat([detailed_results, current_results], axis=0)
+        detailed_results = pd.concat([detailed_results, current_results], axis=0, sort=False)
 
     # write results
     outfile = os.path.join(RESULTS_DIR, "results_%s_%s_%s.csv" % (cls_method, dataset_name, method_name))
