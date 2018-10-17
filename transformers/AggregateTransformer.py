@@ -32,21 +32,21 @@ class AggregateTransformer(TransformerMixin):
             dt_numeric.columns = ['_'.join(col).strip() for col in dt_numeric.columns.values]
             
         # transform cat cols
-        dt_transformed = pd.get_dummies(X[self.cat_cols])
-        dt_transformed[self.case_id_col] = X[self.case_id_col]
-        del X
-        if self.boolean:
-            dt_transformed = dt_transformed.groupby(self.case_id_col).max()
+        if len(self.cat_cols) == 0:
+            dt_transformed = pd.DataFrame()
         else:
-            dt_transformed = dt_transformed.groupby(self.case_id_col).sum()
+            dt_transformed = pd.get_dummies(X[self.cat_cols])
+            dt_transformed[self.case_id_col] = X[self.case_id_col]
+            del X
+            if self.boolean:
+                dt_transformed = dt_transformed.groupby(self.case_id_col).max()
+            else:
+                dt_transformed = dt_transformed.groupby(self.case_id_col).sum()
         
         # concatenate
         if len(self.num_cols) > 0:
-            if len(self.cat_cols) > 0:
-                dt_transformed = pd.concat([dt_transformed, dt_numeric], axis=1, sort=False)
-                del dt_numeric
-            else:
-                dt_transformed = dt_numeric
+            dt_transformed = pd.concat([dt_transformed, dt_numeric], axis=1)
+            del dt_numeric
         
         # fill missing values with 0-s
         if self.fillna:
