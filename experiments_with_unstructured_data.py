@@ -101,7 +101,10 @@ for dataset_name in datasets:
         max_prefix_length = min(40, dataset_manager.get_pos_case_length_quantile(data, 0.90))
 
     # split into training and test
-    train, test = dataset_manager.split_data_strict(data, train_ratio, split="temporal")
+    if dataset_name in ["github", "crm2", "dc"]:
+        train, test = dataset_manager.split_data(data, train_ratio, split="random", seed=22)
+    else:
+        train, test = dataset_manager.split_data_strict(data, train_ratio, split="temporal")
     overall_class_ratio = dataset_manager.get_class_ratio(train)
     
     # fit text models and transform for each event

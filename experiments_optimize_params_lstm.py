@@ -22,13 +22,12 @@ from collections import defaultdict
 import pandas as pd
 import numpy as np
 
-from keras.models import Model
+from keras.models import Sequential
 from keras.layers.core import Dense
-from keras.layers.recurrent import LSTM
-from keras.layers import Input
-from keras.optimizers import Nadam, RMSprop
-from keras.callbacks import EarlyStopping, ModelCheckpoint, ReduceLROnPlateau
-from keras.layers.normalization import BatchNormalization
+from keras.layers import CuDNNLSTM, Dropout
+from keras import regularizers
+from keras.optimizers import Adam
+from keras.callbacks import EarlyStopping, ReduceLROnPlateau
 
 from hyperopt import Trials, STATUS_OK, tpe, fmin, hp
 import hyperopt
@@ -49,49 +48,40 @@ def create_and_evaluate_model(args):
     
     print("Trial %s out of %s" % (trial_nr, n_iter))
     
-    # compile a model with same parameters that was trained, and load the weights of the trained model
-    main_input = Input(shape=(max_len, data_dim), name='main_input')
+    model = Sequential()
+    
+    model.add(CuDNNLSTM(int(params["lstmsize"]),
+                           kernel_initializer='glorot_uniform',
+                           return_sequences=(n_layers != 1),
+                           kernel_regularizer=regularizers.l1_l2(params["l1"],params["l2"]),
+                           recurrent_regularizer=regularizers.l1_l2(params["l1"],params["l2"]),
+                           input_shape=(maxlen, num_chars)))
+    model.add(Dropout(params["dropout"]))
 
-    if args['n_layers'] == 1:
-        l2_3 = LSTM(args['lstmsize'], input_shape=(max_len, data_dim), implementation=2, kernel_initializer='glorot_uniform', return_sequences=False, dropout=args['dropout'])(main_input)
-        b2_3 = BatchNormalization()(l2_3)
-
-    elif args['n_layers'] == 2:
-        l1 = LSTM(args['lstmsize'], input_shape=(max_len, data_dim), implementation=2, kernel_initializer='glorot_uniform', return_sequences=True, dropout=args['dropout'])(main_input)
-        b1 = BatchNormalization(axis=1)(l1)
-        l2_3 = LSTM(args['lstmsize'], implementation=2, kernel_initializer='glorot_uniform', return_sequences=False, dropout=args['dropout'])(b1)
-        b2_3 = BatchNormalization()(l2_3)
-
-    elif args['n_layers'] == 3:
-        l1 = LSTM(args['lstmsize'], input_shape=(max_len, data_dim), implementation=2, kernel_initializer='glorot_uniform', return_sequences=True, dropout=args['dropout'])(main_input)
-        b1 = BatchNormalization(axis=1)(l1)
-        l2 = LSTM(args['lstmsize'], implementation=2, kernel_initializer='glorot_uniform', return_sequences=True, dropout=args['dropout'])(b1)
-        b2 = BatchNormalization(axis=1)(l2)
-        l3 = LSTM(args['lstmsize'], implementation=2, kernel_initializer='glorot_uniform', return_sequences=False, dropout=args['dropout'])(b2)
-        b2_3 = BatchNormalization()(l3)
-
-    outcome_output = Dense(2, activation=activation, kernel_initializer='glorot_uniform', name='outcome_output')(b2_3)
-
-    model = Model(inputs=[main_input], outputs=[outcome_output])
-    if args['optimizer'] == "adam":
-        opt = Nadam(lr=args['learning_rate'], beta_1=0.9, beta_2=0.999, epsilon=1e-08, schedule_decay=0.004, clipvalue=3)
-    elif args['optimizer'] == "rmsprop":
-        opt = RMSprop(lr=args['learning_rate'], rho=0.9, epsilon=1e-08, decay=0.0)
-
-    model.compile(loss={'outcome_output':'binary_crossentropy'}, optimizer=opt)
+    for i in range(2, params['n_layers']+1):
+        return_sequences = (i != n_layers)
+        model.add(CuDNNLSTM(args['lstmsize'],
+                       kernel_initializer='glorot_uniform',
+                       return_sequences=return_sequences,
+                       kernel_regularizer=regularizers.l1_l2(params["l1"],params["l2"]),
+                       recurrent_regularizer=regularizers.l1_l2(params["l1"],params["l2"])))
+        model.add(Dropout(params["dropout"]))
+        
+    model.add(Dense(2, activation=activation, kernel_initializer='glorot_uniform'))
+    #model.add(Activation(tf.nn.sigmoid))
+    opt = Adam(lr=params["learning_rate"])
+    model.compile(loss='binary_crossentropy', optimizer=opt)
+        
+        
 
     early_stopping = EarlyStopping(monitor='val_loss', patience=10)
-    lr_reducer = ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=7, verbose=0, mode='auto', epsilon=0.0001, cooldown=0, min_lr=0)
-    
-    #history = model.fit_generator(dataset_manager.data_generator(dt_train, max_len, 2**args['batch_size']),
-    #                              validation_data=dataset_manager.data_generator(dt_val, max_len, 2**args['batch_size']),
-    #                              verbose=2, callbacks=[early_stopping, lr_reducer],
-    #                              steps_per_epoch=int(np.ceil(len(dt_train) / 2**args['batch_size'])), 
-    #                              validation_steps=int(np.ceil(len(dt_val) / 2**args['batch_size'])), epochs=nb_epoch)
-    
-    history = model.fit({'main_input': X}, {'outcome_output':y}, validation_data=(X_val, y_val), verbose=2,
-                        callbacks=[early_stopping, lr_reducer], batch_size=2**args['batch_size'], epochs=nb_epoch)
+    lr_reducer = ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=100, verbose=0, mode='auto', epsilon=0.0001, cooldown=0, min_lr=0)
 
+    # train the model, output generated text after each iteration
+    history = model.fit(X, y,
+                        validation_data=(X_val, y_val),
+              callbacks=[early_stopping, lr_reducer],
+              batch_size=2**params['batch_size'], epochs=nb_epoch, verbose=2)
     
     val_losses = [history.history['val_loss'][epoch] for epoch in range(len(history.history['loss']))]
     #K.clear_session()
@@ -152,8 +142,10 @@ space = {'lstmsize': scope.int(hp.qloguniform('lstmsize', np.log(10), np.log(150
          'dropout': hp.uniform("dropout", 0, 0.3),
          'n_layers': scope.int(hp.quniform('n_layers', 1, 3, 1)),
          'batch_size': scope.int(hp.quniform('batch_size', 3, 6, 1)),
-         'optimizer': hp.choice('optimizer', ["rmsprop", "adam"]),
-         'learning_rate': hp.loguniform("learning_rate", np.log(0.000001), np.log(0.0001))}
+         #'optimizer': hp.choice('optimizer', ["rmsprop", "adam"]),
+         'learning_rate': hp.loguniform("learning_rate", np.log(0.000001), np.log(0.0001)),
+         'l1': hp.loguniform("l1", np.log(0.00001), np.log(0.1)),
+         'l2': hp.loguniform("l2", np.log(0.00001), np.log(0.1))}
 
 # optimize parameters
 trial_nr = 0

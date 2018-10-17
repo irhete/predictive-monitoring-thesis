@@ -124,7 +124,10 @@ for dataset_name in datasets:
         max_prefix_length = min(40, dataset_manager.get_pos_case_length_quantile(data, 0.90))
 
     # split into training and test
-    train, _ = dataset_manager.split_data_strict(data, train_ratio, split="temporal")
+    if dataset_name in ["github", "crm2", "dc"]:
+        train, _ = dataset_manager.split_data(data, train_ratio, split="random", seed=22)
+    else:
+        train, _ = dataset_manager.split_data_strict(data, train_ratio, split="temporal")
     
     # prepare chunks for CV
     class_ratios = []
