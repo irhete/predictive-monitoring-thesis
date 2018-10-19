@@ -68,4 +68,19 @@ for dataset_name in datasets:
                                                                       n_static_cat_levels, n_dynamic_cat_levels)
     dt_stats.append(record)
     
+    train, test = dataset_manager.split_data_strict(data, 0.8, split="temporal")
+    print("Train temporal: ", train.groupby(case_id_col).first()[label_col].value_counts() / len(train.groupby(case_id_col)))
+    print("Test temporal: ", test.groupby(case_id_col).first()[label_col].value_counts() / len(test.groupby(case_id_col)))
+    
+    train, test = dataset_manager.split_data(data, 0.8, split="random", seed=22)
+    print("Train random: ", train.groupby(case_id_col).first()[label_col].value_counts() / len(train.groupby(case_id_col)))
+    print("Test random: ", test.groupby(case_id_col).first()[label_col].value_counts() / len(test.groupby(case_id_col)))
+    
+    for col in dataset_manager.text_cols:
+        data[col] = data[col].astype(str)
+        n_words_per_doc = data[col].str.split(" ").apply(len)
+        n_unique_lemmas = len(set(data[col].str.split(" ", expand=True).values.flatten()))
+        
+        print(col, n_unique_lemmas, n_words_per_doc.min(), n_words_per_doc.median(), n_words_per_doc.mean(), n_words_per_doc.max())
+    
 print("\\bottomrule")
