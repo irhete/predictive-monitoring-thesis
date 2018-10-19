@@ -26,11 +26,6 @@ from DatasetManager import DatasetManager
 import EncoderFactory
 import ClassifierFactory
 
-PARAMS_DIR = "cv_results"
-
-# create directory
-if not os.path.exists(os.path.join(PARAMS_DIR)):
-    os.makedirs(os.path.join(PARAMS_DIR))
 
 def create_and_evaluate_model(args):
     global trial_nr, all_results
@@ -59,7 +54,8 @@ def create_and_evaluate_model(args):
         cls.fit(dt_train, train_y)
         preds = cls.predict_proba(dt_test)
 
-        score += roc_auc_score(test_y, preds)
+        if len(set(test_y)) >= 2:
+            score += roc_auc_score(test_y, preds)
     
     # save current trial results
     for k, v in args.items():
@@ -74,11 +70,25 @@ cls_method = argv[3]
 n_iter = int(argv[4])
 
 train_ratio = 0.8
-n_splits = 3
+n_splits = 1
 random_state = 22
 min_cases_for_training = 1
 
-bucket_method, cls_encoding = method_name.split("_")
+if n_splits == 1:
+    PARAMS_DIR = "val_results_unstructured"
+else:
+    PARAMS_DIR = "cv_results"
+
+# create directory
+if not os.path.exists(os.path.join(PARAMS_DIR)):
+    os.makedirs(os.path.join(PARAMS_DIR))
+
+if "prefix_index" in method_name:
+    bucket_method, cls_encoding, nr_events = method_name.split("_")
+    nr_events = int(nr_events)
+else:
+    bucket_method, cls_encoding = method_name.split("_")
+    nr_events = None
 
 dataset_ref_to_datasets = {
     "bpic2011": ["bpic2011_f%s"%formula for formula in range(1,5)],
@@ -124,44 +134,87 @@ for dataset_name in datasets:
         max_prefix_length = min(40, dataset_manager.get_pos_case_length_quantile(data, 0.90))
 
     # split into training and test
-    if dataset_name in ["github", "crm2", "dc"]:
-        train, _ = dataset_manager.split_data(data, train_ratio, split="random", seed=22)
-    else:
-        train, _ = dataset_manager.split_data_strict(data, train_ratio, split="temporal")
+    train, _ = dataset_manager.split_data_strict(data, train_ratio, split="temporal")
+    del data
     
     # prepare chunks for CV
     class_ratios = []
     cv_iter = 0
-    for train_chunk, test_chunk in dataset_manager.get_stratified_split_generator(train, n_splits=n_splits):
+    if n_splits == 1:
+        if dataset_ref in ["github"]:
+            train, _ = dataset_manager.split_data(train, train_ratio=0.15/train_ratio, split="random", seed=22)
+            # train will be 0.1 of original data and val 0.05
+            train_chunk, test_chunk = dataset_manager.split_val(train, val_ratio=0.33, split="random", seed=22)
+        else:
+            train_chunk, test_chunk = dataset_manager.split_val(train, 0.2, split="random", seed=22)
+        
         class_ratios.append(dataset_manager.get_class_ratio(train_chunk))
-        
+
         # generate prefixes
-        dt_train_prefixes = dataset_manager.generate_prefix_data(train_chunk, min_prefix_length, max_prefix_length)
-        dt_test_prefixes = dataset_manager.generate_prefix_data(test_chunk, min_prefix_length, max_prefix_length)
-        
+        if nr_events is not None:
+            dt_train_prefixes = dataset_manager.generate_prefix_data(train_chunk, nr_events, nr_events)
+            dt_test_prefixes = dataset_manager.generate_prefix_data(test_chunk, nr_events, nr_events)
+        else:
+            dt_train_prefixes = dataset_manager.generate_prefix_data(train_chunk, min_prefix_length, max_prefix_length)
+            dt_test_prefixes = dataset_manager.generate_prefix_data(test_chunk, min_prefix_length, max_prefix_length)
+
         # encode data for classifier
         feature_combiner = FeatureUnion([(method, EncoderFactory.get_encoder(method, **cls_encoder_args)) for method in methods])
         if cls_method == "svm" or cls_method == "logit":
             feature_combiner = Pipeline([('encoder', feature_combiner), ('scaler', StandardScaler())])
-        
+
         dt_train_encoded = feature_combiner.fit_transform(dt_train_prefixes)
         pd.DataFrame(dt_train_encoded).to_csv(os.path.join(folds_dir, "fold%s_train.csv" % cv_iter), sep=";", index=False)
         del dt_train_encoded
-        
+
         dt_test_encoded = feature_combiner.transform(dt_test_prefixes)
         pd.DataFrame(dt_test_encoded).to_csv(os.path.join(folds_dir, "fold%s_test.csv" % cv_iter), sep=";", index=False)
         del dt_test_encoded
-        
+
         # labels
         train_y = dataset_manager.get_label_numeric(dt_train_prefixes)
         with open(os.path.join(folds_dir, "fold%s_train_y.csv" % cv_iter), "wb") as fout:
             pickle.dump(train_y, fout)
-            
+
         test_y = dataset_manager.get_label_numeric(dt_test_prefixes)
         with open(os.path.join(folds_dir, "fold%s_test_y.csv" % cv_iter), "wb") as fout:
             pickle.dump(test_y, fout)
-            
-        cv_iter += 1
+
+    else:    
+        for train_chunk, test_chunk in dataset_manager.get_stratified_split_generator(train, n_splits=n_splits):
+            class_ratios.append(dataset_manager.get_class_ratio(train_chunk))
+
+            # generate prefixes
+            if nr_events is not None:
+                dt_train_prefixes = dataset_manager.generate_prefix_data(train_chunk, nr_events, nr_events)
+                dt_test_prefixes = dataset_manager.generate_prefix_data(test_chunk, nr_events, nr_events)
+            else:
+                dt_train_prefixes = dataset_manager.generate_prefix_data(train_chunk, min_prefix_length, max_prefix_length)
+                dt_test_prefixes = dataset_manager.generate_prefix_data(test_chunk, min_prefix_length, max_prefix_length)
+
+            # encode data for classifier
+            feature_combiner = FeatureUnion([(method, EncoderFactory.get_encoder(method, **cls_encoder_args)) for method in methods])
+            if cls_method == "svm" or cls_method == "logit":
+                feature_combiner = Pipeline([('encoder', feature_combiner), ('scaler', StandardScaler())])
+
+            dt_train_encoded = feature_combiner.fit_transform(dt_train_prefixes)
+            pd.DataFrame(dt_train_encoded).to_csv(os.path.join(folds_dir, "fold%s_train.csv" % cv_iter), sep=";", index=False)
+            del dt_train_encoded
+
+            dt_test_encoded = feature_combiner.transform(dt_test_prefixes)
+            pd.DataFrame(dt_test_encoded).to_csv(os.path.join(folds_dir, "fold%s_test.csv" % cv_iter), sep=";", index=False)
+            del dt_test_encoded
+
+            # labels
+            train_y = dataset_manager.get_label_numeric(dt_train_prefixes)
+            with open(os.path.join(folds_dir, "fold%s_train_y.csv" % cv_iter), "wb") as fout:
+                pickle.dump(train_y, fout)
+
+            test_y = dataset_manager.get_label_numeric(dt_test_prefixes)
+            with open(os.path.join(folds_dir, "fold%s_test_y.csv" % cv_iter), "wb") as fout:
+                pickle.dump(test_y, fout)
+
+            cv_iter += 1
 
     del train
         

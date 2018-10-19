@@ -26,7 +26,7 @@ from DatasetManager import DatasetManager
 import EncoderFactory
 import ClassifierFactory
 
-PARAMS_DIR = "cv_results"
+PARAMS_DIR = "val_results_unstructured"
 
 # create directory
 if not os.path.exists(os.path.join(PARAMS_DIR)):
@@ -73,23 +73,47 @@ def create_and_evaluate_model(args):
             text_cols.extend(curent_text_cols)
             del dt_train_text, dt_test_text
         
-        cls_encoder_args = {'case_id_col': dataset_manager.case_id_col, 
+        # generate prefixes
+        if nr_events is not None:
+            dt_train_prefixes = dataset_manager.generate_prefix_data(train_chunk, nr_events, nr_events)
+            dt_test_prefixes = dataset_manager.generate_prefix_data(test_chunk, nr_events, nr_events)
+        else:
+            dt_train_prefixes = dataset_manager.generate_prefix_data(train_chunk, min_prefix_length, max_prefix_length)
+            dt_test_prefixes = dataset_manager.generate_prefix_data(test_chunk, min_prefix_length, max_prefix_length)
+                
+        train_y = dataset_manager.get_label_numeric(dt_train_prefixes)
+        test_y = dataset_manager.get_label_numeric(dt_test_prefixes)
+            
+        # set up sequence encoders
+        encoders = []
+        for method in methods:
+            if cls_encoding == text_enc:
+                cls_encoder_args = {'case_id_col': dataset_manager.case_id_col, 
                     'static_cat_cols': dataset_manager.static_cat_cols,
                     'static_num_cols': dataset_manager.static_num_cols, 
                     'dynamic_cat_cols': dataset_manager.dynamic_cat_cols,
                     'dynamic_num_cols': dataset_manager.dynamic_num_cols + text_cols, 
                     'fillna': True}
-    
-        # generate prefixes
-        dt_train_prefixes = dataset_manager.generate_prefix_data(train_chunk, min_prefix_length, max_prefix_length)
-        dt_test_prefixes = dataset_manager.generate_prefix_data(test_chunk, min_prefix_length, max_prefix_length)
+            else:
+                cls_encoder_args = {'case_id_col': dataset_manager.case_id_col, 
+                    'static_cat_cols': dataset_manager.static_cat_cols,
+                    'static_num_cols': dataset_manager.static_num_cols, 
+                    'dynamic_cat_cols': dataset_manager.dynamic_cat_cols,
+                    'dynamic_num_cols': dataset_manager.dynamic_num_cols, 
+                    'fillna': True}
+            encoders.append((method, EncoderFactory.get_encoder(method, **cls_encoder_args)))
+        if cls_encoding != text_enc and text_enc not in methods:
+            cls_encoder_args = {'case_id_col': dataset_manager.case_id_col, 
+                    'static_cat_cols': [],
+                    'static_num_cols': [], 
+                    'dynamic_cat_cols': [],
+                    'dynamic_num_cols': text_cols, 
+                    'fillna': True}
+            encoders.append((method, EncoderFactory.get_encoder(method, **cls_encoder_args)))
+                
+        feature_combiner = FeatureUnion(encoders)
         
-        train_y = dataset_manager.get_label_numeric(dt_train_prefixes)
-        test_y = dataset_manager.get_label_numeric(dt_test_prefixes)
-            
         # fit classifier and predict
-        feature_combiner = FeatureUnion([(method, EncoderFactory.get_encoder(method, **cls_encoder_args)) for method in methods])
-        
         cls = ClassifierFactory.get_classifier(cls_method, cls_args, random_state, min_cases_for_training, class_ratios[cv_iter])
 
         if cls_method == "svm" or cls_method == "logit":
@@ -100,7 +124,8 @@ def create_and_evaluate_model(args):
         pipeline.fit(dt_train_prefixes, train_y)
         preds = pipeline.predict_proba(dt_test_prefixes)
 
-        score += roc_auc_score(test_y, preds)
+        if len(set(test_y)) >= 2:
+            score += roc_auc_score(test_y, preds)
     
     # save current trial results
     for k, v in cls_args.items():
@@ -112,21 +137,32 @@ def create_and_evaluate_model(args):
 
 
 dataset_ref = argv[1]
-bucket_method = argv[2]
-cls_encoding = argv[3]
-text_method = argv[4]
-cls_method = argv[5]
-n_iter = int(argv[6])
+bucket_enc = argv[2]
+#bucket_method = argv[2]
+#cls_encoding = argv[3]
+text_method_enc = argv[2]
+cls_method = argv[3]
+n_iter = int(argv[4])
 
-if dataset_ref in ["crm2", "github"]:
-    train_ratio = 0.5
-else:
-    train_ratio = 0.8
-n_splits = 3
+train_ratio = 0.8
+n_splits = 1
 random_state = 22
 min_cases_for_training = 1
 
-method_name = "%s_%s_%s" % (bucket_method, cls_encoding, text_method)
+if "prefix_index" in bucket_enc:
+    bucket_method, cls_encoding, nr_events = bucket_enc.split("_")
+    nr_events = int(nr_events)
+else:
+    bucket_method, cls_encoding = bucket_enc.split("_")
+    nr_events = None
+    
+if "_" in text_method_enc:
+    text_method, text_enc = text_method_enc.split("_")
+else:
+    text_method = text_method_enc
+    text_enc = cls_encoding
+
+method_name = "%s_%s" % (bucket_enc, text_method_enc)
 
 dataset_ref_to_datasets = {
     "bpic2011": ["bpic2011_f%s"%formula for formula in range(1,5)],
@@ -164,22 +200,32 @@ for dataset_name in datasets:
     else:
         max_prefix_length = min(40, dataset_manager.get_pos_case_length_quantile(data, 0.90))
 
-    # split into training and test
-    if dataset_name in ["github", "crm2", "dc"]:
-        train, _ = dataset_manager.split_data(data, train_ratio, split="random", seed=22)
-    else:
-        train, _ = dataset_manager.split_data_strict(data, train_ratio, split="temporal")
+    train, _ = dataset_manager.split_data_strict(data, train_ratio, split="temporal")
+    
+    del data
     
     # prepare chunks for CV
     class_ratios = []
     cv_iter = 0
-    for train_chunk, test_chunk in dataset_manager.get_stratified_split_generator(train, n_splits=n_splits):
-        class_ratios.append(dataset_manager.get_class_ratio(train_chunk))
-        
+    if n_splits == 1:
+        if dataset_ref in ["github"]:
+            train, _ = dataset_manager.split_data(train, train_ratio=0.15/train_ratio, split="random", seed=22)
+            # train will be 0.1 of original data and val 0.05
+            train_chunk, test_chunk = dataset_manager.split_val(train, val_ratio=0.33, split="random", seed=22)
+        else:
+            train_chunk, test_chunk = dataset_manager.split_val(train, 0.2, split="random", seed=22)
         pd.DataFrame(train_chunk).to_csv(os.path.join(folds_dir, "fold%s_train.csv" % cv_iter), sep=";", index=False)
         pd.DataFrame(test_chunk).to_csv(os.path.join(folds_dir, "fold%s_test.csv" % cv_iter), sep=";", index=False)
-        
-        cv_iter += 1
+        class_ratios.append(dataset_manager.get_class_ratio(train_chunk))
+    
+    else:
+        for train_chunk, test_chunk in dataset_manager.get_stratified_split_generator(train, n_splits=n_splits):
+            class_ratios.append(dataset_manager.get_class_ratio(train_chunk))
+
+            pd.DataFrame(train_chunk).to_csv(os.path.join(folds_dir, "fold%s_train.csv" % cv_iter), sep=";", index=False)
+            pd.DataFrame(test_chunk).to_csv(os.path.join(folds_dir, "fold%s_test.csv" % cv_iter), sep=";", index=False)
+
+            cv_iter += 1
 
     del train
         
@@ -201,7 +247,7 @@ for dataset_name in datasets:
         space = {'C': hp.uniform('C', -15, 15),
                  'gamma': hp.uniform('gamma', -15, 15)}
     
-    cls_params = space.keys()
+    cls_params = set(space.keys())
     
     if text_method == "bong":
         space["ngram_max"] = scope.int(hp.quniform('ngram_max', 1, 3, 1))
