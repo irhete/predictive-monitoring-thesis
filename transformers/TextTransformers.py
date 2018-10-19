@@ -227,7 +227,6 @@ class NBLogCountRatioTransformer(TransformerMixin):
     def fit(self, X, y):
         data = X.values.flatten('F')
         bong = self.vectorizer.fit_transform(data)
-        bong = bong.toarray()
         
         # calculate nb ratios
         pos_label_idxs = y == self.pos_label
@@ -244,9 +243,7 @@ class NBLogCountRatioTransformer(TransformerMixin):
         p = 1.0 * pos_bong.sum(axis=0) + self.alpha
         q = 1.0 * neg_bong.sum(axis=0) + self.alpha
         r = np.log((p / p.sum()) / (q / q.sum()))
-        self.nb_r = r
         r = np.squeeze(np.asarray(r))
-        
         
         # feature selection
         if (self.nr_selected >= len(r)): 
@@ -255,6 +252,7 @@ class NBLogCountRatioTransformer(TransformerMixin):
             r_sorted = np.argsort(r)
             r_selected = np.concatenate([r_sorted[:int(np.floor(self.nr_selected/2))], r_sorted[-int(np.ceil(self.nr_selected/2)):]])
         self.r_selected = r_selected
+        self.nb_r = r[r_selected]
         
         if self.nr_selected=="all":
             self.selected_cols = np.array(self.vectorizer.get_feature_names())
@@ -267,12 +265,11 @@ class NBLogCountRatioTransformer(TransformerMixin):
     def transform(self, X):
         data = X.values.flatten('F')
         bong = self.vectorizer.transform(data)
-        bong = bong.toarray()
+        bong = bong.tocsc()
+        bong = bong[:,self.r_selected].toarray()
         
         # generate transformed selected data
         bong = bong * self.nb_r
-        bong = bong[:,self.r_selected]
-        
         
         return pd.DataFrame(bong, columns=self.selected_cols, index=X.index)
     
