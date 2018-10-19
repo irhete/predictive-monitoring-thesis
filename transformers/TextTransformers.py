@@ -193,7 +193,8 @@ class BoNGTransformer(TransformerMixin):
         if self.nr_selected=="all":
             self.selected_cols = np.array(self.vectorizer.get_feature_names())
         else:
-            self.selected_cols = np.array(self.vectorizer.get_feature_names())[self.feature_selector.scores_.argsort()[-self.nr_selected:][::-1]]
+            selected_col_idxs = self.feature_selector.scores_.argsort()[-self.nr_selected::-1]
+            self.selected_cols = np.array(self.vectorizer.get_feature_names())[selected_col_idxs]
         
         return self
     

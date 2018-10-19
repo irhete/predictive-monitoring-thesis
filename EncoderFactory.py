@@ -9,7 +9,7 @@ def get_encoder(method, case_id_col=None, static_cat_cols=None, static_num_cols=
     if method == "static":
         return StaticTransformer(case_id_col=case_id_col, cat_cols=static_cat_cols, num_cols=static_num_cols, fillna=fillna)
 
-    elif method == "last":
+    elif method == "last" or method == "laststate":
         return LastStateTransformer(case_id_col=case_id_col, cat_cols=dynamic_cat_cols, num_cols=dynamic_num_cols, fillna=fillna)
 
     elif method == "agg":
