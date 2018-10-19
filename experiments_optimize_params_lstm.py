@@ -42,7 +42,7 @@ PARAMS_DIR = "val_results_lstm"
 if not os.path.exists(os.path.join(PARAMS_DIR)):
     os.makedirs(os.path.join(PARAMS_DIR))
 
-def create_and_evaluate_model(args):
+def create_and_evaluate_model(params):
     global trial_nr, all_results
     trial_nr += 1
     
@@ -52,15 +52,15 @@ def create_and_evaluate_model(args):
     
     model.add(CuDNNLSTM(int(params["lstmsize"]),
                            kernel_initializer='glorot_uniform',
-                           return_sequences=(n_layers != 1),
+                           return_sequences=(params['n_layers'] != 1),
                            kernel_regularizer=regularizers.l1_l2(params["l1"],params["l2"]),
                            recurrent_regularizer=regularizers.l1_l2(params["l1"],params["l2"]),
-                           input_shape=(maxlen, num_chars)))
+                           input_shape=(max_len, data_dim)))
     model.add(Dropout(params["dropout"]))
 
     for i in range(2, params['n_layers']+1):
-        return_sequences = (i != n_layers)
-        model.add(CuDNNLSTM(args['lstmsize'],
+        return_sequences = (i != params['n_layers'])
+        model.add(CuDNNLSTM(params['lstmsize'],
                        kernel_initializer='glorot_uniform',
                        return_sequences=return_sequences,
                        kernel_regularizer=regularizers.l1_l2(params["l1"],params["l2"]),
@@ -91,7 +91,7 @@ def create_and_evaluate_model(args):
     best_epoch = np.argmin(val_losses)
     
     # save current trial results
-    for k, v in args.items():
+    for k, v in params.items():
         all_results.append((trial_nr, k, v, -1, val_losses[best_epoch]))
 
     return {'loss': val_losses[best_epoch], 'status': STATUS_OK, 'best_epoch': best_epoch+5}
