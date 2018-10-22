@@ -48,19 +48,19 @@ def create_and_evaluate_model(args):
     for cv_iter in range(n_splits):
         
         # read encoded data
-        train_chunk = pd.read_csv(os.path.join(folds_dir, "fold%s_train.csv" % cv_iter), sep=";")
-        test_chunk = pd.read_csv(os.path.join(folds_dir, "fold%s_test.csv" % cv_iter), sep=";")
+        train_chunk = dataset_manager.read_fold(os.path.join(folds_dir, "fold%s_train.csv" % cv_iter))
+        test_chunk = dataset_manager.read_fold(os.path.join(folds_dir, "fold%s_test.csv" % cv_iter))
         
         # fit text models and transform for each event
         if text_method == "nb":
             text_transformer_args["pos_label"] = dataset_manager.pos_label
         elif text_method in ["pv", "lda"]:
             text_transformer_args["random_seed"] = 22
+        if dataset_name in ["crm2", "github"]:
+            text_transformer_args["min_freq"] = 10
         
         text_cols = []
         for col in dataset_manager.text_cols:
-            train_chunk[col] = train_chunk[col].fillna("")
-            test_chunk[col] = test_chunk[col].fillna("")
         
             text_transformer = EncoderFactory.get_encoder(text_method, text_transformer_args=text_transformer_args)
             dt_train_text = text_transformer.fit_transform(train_chunk[[col]], train_chunk[dataset_manager.label_col])
@@ -138,11 +138,9 @@ def create_and_evaluate_model(args):
 
 dataset_ref = argv[1]
 bucket_enc = argv[2]
-#bucket_method = argv[2]
-#cls_encoding = argv[3]
-text_method_enc = argv[2]
-cls_method = argv[3]
-n_iter = int(argv[4])
+text_method_enc = argv[3]
+cls_method = argv[4]
+n_iter = int(argv[5])
 
 train_ratio = 0.8
 n_splits = 1

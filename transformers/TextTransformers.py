@@ -97,7 +97,7 @@ class LDATransformer(TransformerMixin):
 
 class PVTransformer(TransformerMixin):
 
-    def __init__(self, size=16, window=8, min_count=1, workers=1, alpha=0.025, dm=1, epochs=1, random_seed=None):
+    def __init__(self, size=16, window=8, min_freq=1, workers=1, alpha=0.025, dm=1, epochs=1, random_seed=None):
         
         self.random_seed = random_seed
         self.pv_model = None
@@ -109,7 +109,7 @@ class PVTransformer(TransformerMixin):
         self.dm = dm
         
         # may be left as default
-        self.min_count = min_count
+        self.min_freq = min_freq
         self.workers = workers
         self.epochs = epochs
         
@@ -118,7 +118,7 @@ class PVTransformer(TransformerMixin):
         train_comments = X.values.flatten('F')
         train_documents = self._generate_labeled_sentences(train_comments)
         
-        self.pv_model = Doc2Vec(size=self.size, window=self.window, alpha=self.alpha, min_count=self.min_count, workers=self.workers, seed=self.random_seed, dm=self.dm) 
+        self.pv_model = Doc2Vec(size=self.size, window=self.window, alpha=self.alpha, min_count=self.min_freq, workers=self.workers, seed=self.random_seed, dm=self.dm) 
         self.pv_model.build_vocab(train_documents)
         np.random.seed(self.random_seed)
         for epoch in range(self.epochs):
@@ -161,7 +161,7 @@ class PVTransformer(TransformerMixin):
 
 class BoNGTransformer(TransformerMixin):
 
-    def __init__(self, ngram_min=1, ngram_max=1, tfidf=False, nr_selected=100):
+    def __init__(self, ngram_min=1, ngram_max=1, tfidf=False, nr_selected=100, min_freq=1):
         
         # should be tuned
         self.ngram_max = ngram_max
@@ -170,6 +170,7 @@ class BoNGTransformer(TransformerMixin):
         
         # may be left as default
         self.ngram_min = ngram_min
+        self.min_freq = min_freq
         
         self.vectorizer = None
         self.feature_selector = SelectKBest(chi2, k=self.nr_selected)
@@ -179,9 +180,9 @@ class BoNGTransformer(TransformerMixin):
     def fit(self, X, y):
         data = X.values.flatten('F')
         if self.tfidf:
-            self.vectorizer = TfidfVectorizer(ngram_range=(self.ngram_min,self.ngram_max))
+            self.vectorizer = TfidfVectorizer(ngram_range=(self.ngram_min,self.ngram_max), min_df=self.min_freq)
         else:
-            self.vectorizer = CountVectorizer(ngram_range=(self.ngram_min,self.ngram_max))
+            self.vectorizer = CountVectorizer(ngram_range=(self.ngram_min,self.ngram_max), min_df=self.min_freq)
         bong = self.vectorizer.fit_transform(data)
 
         # select features
@@ -193,7 +194,7 @@ class BoNGTransformer(TransformerMixin):
         if self.nr_selected=="all":
             self.selected_cols = np.array(self.vectorizer.get_feature_names())
         else:
-            selected_col_idxs = self.feature_selector.scores_.argsort()[-self.nr_selected::-1]
+            selected_col_idxs = self.feature_selector.scores_.argsort()[-self.nr_selected:]
             self.selected_cols = np.array(self.vectorizer.get_feature_names())[selected_col_idxs]
         
         return self
@@ -208,10 +209,9 @@ class BoNGTransformer(TransformerMixin):
         return pd.DataFrame(bong, columns=self.selected_cols, index=X.index)
     
     
-    
 class NBLogCountRatioTransformer(TransformerMixin):
 
-    def __init__(self, ngram_min=1, ngram_max=1, alpha=1.0, nr_selected=100, pos_label="positive"):
+    def __init__(self, ngram_min=1, ngram_max=1, alpha=1.0, nr_selected=100, pos_label="positive", min_freq=1):
         
         # should be tuned
         self.ngram_max = ngram_max
@@ -220,9 +220,10 @@ class NBLogCountRatioTransformer(TransformerMixin):
         
         # may be left as default
         self.ngram_min = ngram_min
+        self.min_freq = min_freq
         
         self.pos_label = pos_label
-        self.vectorizer = CountVectorizer(ngram_range=(ngram_min,ngram_max))
+        self.vectorizer = CountVectorizer(ngram_range=(ngram_min,ngram_max), min_df=self.min_freq)
         
         
     def fit(self, X, y):
@@ -230,11 +231,11 @@ class NBLogCountRatioTransformer(TransformerMixin):
         bong = self.vectorizer.fit_transform(data)
         
         # calculate nb ratios
-        pos_label_idxs = y == self.pos_label
+        pos_label_idxs = np.array(y == self.pos_label)
         if sum(pos_label_idxs) > 0:
             if len(y) - sum(pos_label_idxs) > 0:
-                pos_bong = bong[pos_label_idxs]
-                neg_bong = bong[~pos_label_idxs]
+                pos_bong = bong[pos_label_idxs,:]
+                neg_bong = bong[~pos_label_idxs,:]
             else:
                 neg_bong = np.array([])
                 pos_bong = bong.copy()

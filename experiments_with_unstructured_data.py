@@ -1,10 +1,10 @@
 """This script trains and evaluates a predictive model for outcome-oriented predictive process monitoring with structured and unstructured data.
 
 Usage:
-  experiments.py <dataset> <method> <classifier>
+  experiments_with_unstructured_data.py <dataset> <method> <text_method> <classifier>
 
 Example:
-    experiments.py bpic2012_cancelled single_laststate_bong xgboost
+    experiments_with_unstructured_data.py bpic2012_cancelled single_laststate bong xgboost
   
 Author: Irene Teinemaa [irene.teinemaa@gmail.com]
 """
@@ -31,17 +31,24 @@ import BucketFactory
 import ClassifierFactory
 
 
-PARAMS_DIR = "cv_results_revision"
-RESULTS_DIR = "results"
+PARAMS_DIR = "val_results_unstructured"
+RESULTS_DIR = "results_unstructured"
 
 dataset_ref = argv[1]
-method_name = argv[2]
-cls_method = argv[3]
+bucket_enc = argv[2]
+text_method_enc = argv[3]
+cls_method = argv[4]
 
-gap = 1
-
-bucket_method, cls_encoding, text_method = method_name.split("_")
-
+bucket_method, cls_encoding = bucket_enc.split("_")
+    nr_events = None
+    
+if "_" in text_method_enc:
+    text_method, text_enc = text_method_enc.split("_")
+else:
+    text_method = text_method_enc
+    text_enc = cls_encoding
+    
+method_name = "%s_%s" % (bucket_enc, text_method_enc)
 
 if bucket_method == "state":
     bucket_encoding = "last"
@@ -69,23 +76,11 @@ train_ratio = 0.8
 random_state = 22
 min_cases_for_training = 1
 
-#text_transformer_args = {"ngram_max": 1, "tfidf": False, "nr_selected": 100}
-
 # create results directory
 if not os.path.exists(os.path.join(RESULTS_DIR)):
     os.makedirs(os.path.join(RESULTS_DIR))
     
 for dataset_name in datasets:
-    pr = cProfile.Profile()
-    pr.enable()
-    
-    # load optimal params
-    optimal_params_filename = os.path.join(PARAMS_DIR, "optimal_params_%s_%s_%s.pickle" % (cls_method, dataset_name, method_name))
-    if not os.path.isfile(optimal_params_filename) or os.path.getsize(optimal_params_filename) <= 0:
-        continue
-        
-    with open(optimal_params_filename, "rb") as fin:
-        args_all = pickle.load(fin)
     
     # read the data
     dataset_manager = DatasetManager(dataset_name)
@@ -101,100 +96,115 @@ for dataset_name in datasets:
         max_prefix_length = min(40, dataset_manager.get_pos_case_length_quantile(data, 0.90))
 
     # split into training and test
-    if dataset_name in ["github", "crm2", "dc"]:
-        train, test = dataset_manager.split_data(data, train_ratio, split="random", seed=22)
+    train, test = dataset_manager.split_data_strict(data, train_ratio, split="temporal")
+    
+    if bucket_enc == "prefix_index":
+        nr_eventss = range(min_prefix_length, max_prefix_length+1)
     else:
-        train, test = dataset_manager.split_data_strict(data, train_ratio, split="temporal")
-    overall_class_ratio = dataset_manager.get_class_ratio(train)
-    
-    # fit text models and transform for each event
-    text_transformer_args = args_all["text_transformer_args"]
-    if text_method == "nb":
-        text_transformer_args["pos_label"] = dataset_manager.pos_label
-    text_transformer = EncoderFactory.get_encoder(text_method, text_transformer_args=text_transformer_args)
-    #text_transformer = EncoderFactory.get_encoder(text_method, text_transformer_args=text_transformer_args)
-    dt_train_text = text_transformer.fit_transform(train[dataset_manager.text_cols], train[dataset_manager.label_col])
-    dt_test_text = text_transformer.transform(test[dataset_manager.text_cols])
-    train = pd.concat([train.drop(dataset_manager.text_cols, axis=1), dt_train_text], axis=1, sort=False)
-    test = pd.concat([test.drop(dataset_manager.text_cols, axis=1), dt_test_text], axis=1, sort=False)
-    text_cols = list(dt_train_text.columns)
-    del dt_train_text, dt_test_text
-    
-    # generate prefix logs
-    dt_test_prefixes = dataset_manager.generate_prefix_data(test, min_prefix_length, max_prefix_length)
-    dt_train_prefixes = dataset_manager.generate_prefix_data(train, min_prefix_length, max_prefix_length, gap)
-    
-    # Bucketing prefixes based on control flow
-    bucketer_args = {'encoding_method': bucket_encoding, 
-                     'case_id_col': dataset_manager.case_id_col, 
-                     'cat_cols': [dataset_manager.activity_col], 
-                     'num_cols': [], 
-                     'random_state': random_state}
-    if bucket_method == "cluster":
-        bucketer_args["n_clusters"] = int(args_all["bucket_args"]["n_clusters"])
-    cls_encoder_args = {'case_id_col': dataset_manager.case_id_col, 
-                        'static_cat_cols': dataset_manager.static_cat_cols,
-                        'static_num_cols': dataset_manager.static_num_cols, 
-                        'dynamic_cat_cols': dataset_manager.dynamic_cat_cols,
-                        'dynamic_num_cols': dataset_manager.dynamic_num_cols + text_cols,
-                        'fillna': True}
-    bucketer = BucketFactory.get_bucketer(bucket_method, **bucketer_args)
-    bucket_assignments_train = bucketer.fit_predict(dt_train_prefixes)
-    bucket_assignments_test = bucketer.predict(dt_test_prefixes)
-
-    preds_all = []
-    test_y_all = []
-    nr_events_all = []
-    for bucket in set(bucket_assignments_test):
-        current_args = args_all["cls_args"] if bucket_method != "prefix" else args_all["cls_args"][bucket]
-        #current_args = args_all if bucket_method != "prefix" else args_all[bucket]
-        current_args["n_estimators"] = 500
+        nr_eventss = [None]
+       
+    scores = {}
+    for nr_events in nr_eventss:
+        if nr_events is None:
+            # load optimal params
+            optimal_params_filename = os.path.join(PARAMS_DIR, "optimal_params_%s_%s_%s.pickle" % (cls_method, dataset_name, method_name))
+        else:
+            optimal_params_filename = os.path.join(PARAMS_DIR, "optimal_params_%s_%s_%s_%s.pickle" % (cls_method, dataset_name, method_name, nr_events))
             
-        # select prefixes for the given bucket
-        relevant_train_cases_bucket = dataset_manager.get_indexes(dt_train_prefixes)[bucket_assignments_train == bucket]
-        relevant_test_cases_bucket = dataset_manager.get_indexes(dt_test_prefixes)[bucket_assignments_test == bucket]
-        dt_test_bucket = dataset_manager.get_relevant_data_by_indexes(dt_test_prefixes, relevant_test_cases_bucket)
-        dt_train_bucket = dataset_manager.get_relevant_data_by_indexes(dt_train_prefixes, relevant_train_cases_bucket)
-        train_y = dataset_manager.get_label_numeric(dt_train_bucket)
-        test_y = dataset_manager.get_label_numeric(dt_test_bucket)
-            
-        # add data about prefixes in this bucket (class labels and prefix lengths)
-        nr_events_all.extend(list(dataset_manager.get_prefix_lengths(dt_test_bucket)))
-        test_y_all.extend(test_y)
+        if not os.path.isfile(optimal_params_filename) or os.path.getsize(optimal_params_filename) <= 0:
+            print("Optimal params for % % % not found" % (cls_method, dataset_name, method_name))
+            continue
 
-        # initialize pipeline for sequence encoder and classifier
-        feature_combiner = FeatureUnion([(method, EncoderFactory.get_encoder(method, **cls_encoder_args)) for method in methods])
-        cls = ClassifierFactory.get_classifier(cls_method, current_args, random_state, min_cases_for_training, overall_class_ratio)
+        with open(optimal_params_filename, "rb") as fin:
+            args_all = pickle.load(fin)
+
+        # fit text models and transform for each event
+        text_transformer_args = args_all["text_transformer_args"]
+        if text_method == "nb":
+            text_transformer_args["pos_label"] = dataset_manager.pos_label
+        elif text_method in ["pv", "lda"]:
+            text_transformer_args["random_seed"] = 22
+        if dataset_name in ["crm2", "github"]:
+            text_transformer_args["min_freq"] = 10
+
+        text_cols = []
+        for col in dataset_manager.text_cols:
+            text_transformer = EncoderFactory.get_encoder(text_method, text_transformer_args=text_transformer_args)
+            dt_train_text = text_transformer.fit_transform(train[[col]], train[dataset_manager.label_col])
+            curent_text_cols = ["%s_%s" % (col, text_col) for text_col in dt_train_text.columns]
+            dt_train_text.columns = curent_text_cols
+            dt_test_text = text_transformer.transform(test[[col]])
+            dt_test_text.columns = curent_text_cols
+            train = pd.concat([train.drop(col, axis=1), dt_train_text], axis=1, sort=False)
+            test = pd.concat([test.drop(col, axis=1), dt_test_text], axis=1, sort=False)
+            text_cols.extend(curent_text_cols)
+            del dt_train_text, dt_test_text
+
+        # generate prefixes
+        if nr_events is not None:
+            dt_train_prefixes = dataset_manager.generate_prefix_data(train, nr_events, nr_events)
+            dt_test_prefixes = dataset_manager.generate_prefix_data(test, nr_events, nr_events)
+            overall_class_ratio = dataset_manager.get_class_ratio(dt_train_prefixes)
+        else:
+            dt_train_prefixes = dataset_manager.generate_prefix_data(train, min_prefix_length, max_prefix_length)
+            dt_test_prefixes = dataset_manager.generate_prefix_data(test, min_prefix_length, max_prefix_length)
+            overall_class_ratio = dataset_manager.get_class_ratio(train)
+            
+        train_y = dataset_manager.get_label_numeric(dt_train_prefixes)
+        test_y = dataset_manager.get_label_numeric(dt_test_prefixes)
+
+        # set up sequence encoders
+        encoders = []
+        for method in methods:
+            if cls_encoding == text_enc:
+                cls_encoder_args = {'case_id_col': dataset_manager.case_id_col, 
+                    'static_cat_cols': dataset_manager.static_cat_cols,
+                    'static_num_cols': dataset_manager.static_num_cols, 
+                    'dynamic_cat_cols': dataset_manager.dynamic_cat_cols,
+                    'dynamic_num_cols': dataset_manager.dynamic_num_cols + text_cols, 
+                    'fillna': True}
+            else:
+                cls_encoder_args = {'case_id_col': dataset_manager.case_id_col, 
+                    'static_cat_cols': dataset_manager.static_cat_cols,
+                    'static_num_cols': dataset_manager.static_num_cols, 
+                    'dynamic_cat_cols': dataset_manager.dynamic_cat_cols,
+                    'dynamic_num_cols': dataset_manager.dynamic_num_cols, 
+                    'fillna': True}
+            encoders.append((method, EncoderFactory.get_encoder(method, **cls_encoder_args)))
+        if cls_encoding != text_enc and text_enc not in methods:
+            cls_encoder_args = {'case_id_col': dataset_manager.case_id_col, 
+                    'static_cat_cols': [],
+                    'static_num_cols': [], 
+                    'dynamic_cat_cols': [],
+                    'dynamic_num_cols': text_cols, 
+                    'fillna': True}
+            encoders.append((method, EncoderFactory.get_encoder(method, **cls_encoder_args)))
+
+        feature_combiner = FeatureUnion(encoders)
+
+        # fit classifier and predict
+        cls = ClassifierFactory.get_classifier(cls_method, cls_args, random_state, min_cases_for_training, class_ratios[cv_iter])
 
         if cls_method == "svm" or cls_method == "logit":
             pipeline = Pipeline([('encoder', feature_combiner), ('scaler', StandardScaler()), ('cls', cls)])
         else:
             pipeline = Pipeline([('encoder', feature_combiner), ('cls', cls)])
 
-        # fit pipeline
-        pipeline.fit(dt_train_bucket, train_y)
+        pipeline.fit(dt_train_prefixes, train_y)
+        preds = pipeline.predict_proba(dt_test_prefixes)
 
-        # predict 
-        preds = pipeline.predict_proba(dt_test_bucket)
-        preds_all.extend(preds)
+        if len(set(test_y)) >= 2:
+            score = roc_auc_score(test_y, preds)
+        else:
+            score = None
+            
+        scores[nr_events] = score
 
-    pr.disable()
-    pr.dump_stats("stats.txt")
-    p = pstats.Stats('stats.txt')
-    print(p.sort_stats('time').print_stats(10))
-        
-    # write results
-    outfile = os.path.join(RESULTS_DIR, "results_%s_%s_%s_gap%s.csv" % (cls_method, dataset_name, method_name, gap))
-    with open(outfile, 'w') as csvfile:
-        spamwriter = csv.writer(csvfile, delimiter=';', quoting=csv.QUOTE_NONE)
-        spamwriter.writerow(["dataset", "method", "cls", "nr_events", "metric", "score"])
+# write results
+outfile = os.path.join(RESULTS_DIR, "results_%s_%s_%s.csv" % (cls_method, dataset_name, method_name))
+with open(outfile, 'w') as csvfile:
+    spamwriter = csv.writer(csvfile, delimiter=';', quoting=csv.QUOTE_NONE)
+    spamwriter.writerow(["dataset", "bucket_enc", "text_enc", "cls", "nr_events", "metric", "score"])
 
-        dt_results = pd.DataFrame({"actual": test_y_all, "predicted": preds_all, "nr_events": nr_events_all})
-        for nr_events, group in dt_results.groupby("nr_events"):
-            auc = np.nan if len(set(group.actual)) < 2 else roc_auc_score(group.actual, group.predicted)
-            spamwriter.writerow([dataset_name, method_name, cls_method, nr_events, -1, "auc", auc])
-            print(nr_events, auc)
-
-        auc = roc_auc_score(dt_results.actual, dt_results.predicted)
-        spamwriter.writerow([dataset_name, method_name, cls_method, -1, "auc", auc])
-        print(nr_events, auc)
+    for nr_events, auc in scores.items():
+        spamwriter.writerow([dataset_name, bucket_enc, text_enc, cls_method, nr_events, "auc", auc])

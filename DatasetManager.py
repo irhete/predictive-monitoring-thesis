@@ -49,6 +49,20 @@ class DatasetManager:
             data[col] = data[col].fillna("")
 
         return data
+    
+    def read_fold(self, filepath):
+        # read dataset
+        dtypes = {col:"object" for col in self.dynamic_cat_cols+self.static_cat_cols+[self.case_id_col, self.label_col, self.timestamp_col]}
+        for col in self.dynamic_num_cols + self.static_num_cols:
+            dtypes[col] = "float"
+
+        data = pd.read_csv(filepath, sep=";", dtype=dtypes)
+        data[self.timestamp_col] = pd.to_datetime(data[self.timestamp_col])
+        
+        for col in self.text_cols:
+            data[col] = data[col].fillna("")
+
+        return data
 
     def split_data(self, data, train_ratio, split="temporal", seed=22):  
         # split into train and test using temporal split
