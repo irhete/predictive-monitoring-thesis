@@ -77,7 +77,7 @@ def create_and_evaluate_model(args):
     for k, v in args.items():
         all_results.append((trial_nr, k, v, -1, score_auc, np.sqrt(mspd_acc), score))
 
-    return {'loss': -score, 'status': STATUS_OK, 'model': cls}
+    return {'loss': -score, 'status': STATUS_OK}
 
 
 dataset_ref = argv[1]

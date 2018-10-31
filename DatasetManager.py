@@ -28,7 +28,8 @@ class DatasetManager:
         self.static_cat_cols = dataset_confs.static_cat_cols[self.dataset_name]
         self.dynamic_num_cols = dataset_confs.dynamic_num_cols[self.dataset_name]
         self.static_num_cols = dataset_confs.static_num_cols[self.dataset_name]
-        self.text_cols = dataset_confs.text_cols.get(self.dataset_name, [])
+        self.static_text_cols = dataset_confs.static_text_cols.get(self.dataset_name, [])
+        self.dynamic_text_cols = dataset_confs.dynamic_text_cols.get(self.dataset_name, [])
         
         self.sorting_cols = [self.timestamp_col, self.activity_col]
         
@@ -38,14 +39,18 @@ class DatasetManager:
     
     def read_dataset(self):
         # read dataset
-        dtypes = {col:"object" for col in self.dynamic_cat_cols+self.static_cat_cols+[self.case_id_col, self.label_col, self.timestamp_col]}
+        dtypes = {col:"object" for col in self.dynamic_cat_cols+self.static_cat_cols+[self.case_id_col, self.label_col, self.timestamp_col, self.activity_col]}
         for col in self.dynamic_num_cols + self.static_num_cols:
             dtypes[col] = "float"
 
-        data = pd.read_csv(dataset_confs.filename[self.dataset_name], sep=";", dtype=dtypes)
-        data[self.timestamp_col] = pd.to_datetime(data[self.timestamp_col])
+        data = pd.read_csv(dataset_confs.filename[self.dataset_name],
+                           sep=";",
+                           dtype=dtypes,
+                           usecols=list(dtypes.keys()) + self.static_text_cols + self.dynamic_text_cols,
+                           parse_dates=[self.timestamp_col])
+        #data[self.timestamp_col] = pd.to_datetime(data[self.timestamp_col])
         
-        for col in self.text_cols:
+        for col in self.static_text_cols + self.dynamic_text_cols:
             data[col] = data[col].fillna("")
 
         return data
@@ -59,7 +64,7 @@ class DatasetManager:
         data = pd.read_csv(filepath, sep=";", dtype=dtypes)
         data[self.timestamp_col] = pd.to_datetime(data[self.timestamp_col])
         
-        for col in self.text_cols:
+        for col in self.static_text_cols + self.dynamic_text_cols:
             data[col] = data[col].fillna("")
 
         return data

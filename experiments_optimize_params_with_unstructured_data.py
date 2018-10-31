@@ -52,25 +52,35 @@ def create_and_evaluate_model(args):
         test_chunk = dataset_manager.read_fold(os.path.join(folds_dir, "fold%s_test.csv" % cv_iter))
         
         # fit text models and transform for each event
-        if text_method == "nb":
-            text_transformer_args["pos_label"] = dataset_manager.pos_label
+        if text_method in ["nb", "bong"]:
+            text_transformer_args["nr_selected"] = 500
+            if text_method == "nb":
+                text_transformer_args["pos_label"] = dataset_manager.pos_label
         elif text_method in ["pv", "lda"]:
             text_transformer_args["random_seed"] = 22
-        if dataset_name in ["crm2", "github"]:
+        if dataset_name in ["github"]:
+            text_transformer_args["min_freq"] = 10
+        elif dataset_name in ["crm2"]:
             text_transformer_args["min_freq"] = 10
         
-        text_cols = []
-        for col in dataset_manager.text_cols:
+        text_transformer = EncoderFactory.get_encoder(text_method, text_transformer_args=text_transformer_args)
+        dt_train_text = text_transformer.fit_transform(train_chunk[dataset_manager.static_text_cols+dataset_manager.dynamic_text_cols], 
+                                                       train_chunk[dataset_manager.label_col])
         
-            text_transformer = EncoderFactory.get_encoder(text_method, text_transformer_args=text_transformer_args)
-            dt_train_text = text_transformer.fit_transform(train_chunk[[col]], train_chunk[dataset_manager.label_col])
-            curent_text_cols = ["%s_%s" % (col, text_col) for text_col in dt_train_text.columns]
-            dt_train_text.columns = curent_text_cols
+        static_text_cols = []
+        dynamic_text_cols = []
+        for col in dataset_manager.static_text_cols + dataset_manager.dynamic_text_cols:
+            dt_train_text = text_transformer.transform(train_chunk[[col]], train_chunk[dataset_manager.label_col])
+            current_text_cols = ["%s_%s" % (col, text_col) for text_col in dt_train_text.columns]
+            dt_train_text.columns = current_text_cols
             dt_test_text = text_transformer.transform(test_chunk[[col]])
-            dt_test_text.columns = curent_text_cols
+            dt_test_text.columns = current_text_cols
             train_chunk = pd.concat([train_chunk.drop(col, axis=1), dt_train_text], axis=1, sort=False)
             test_chunk = pd.concat([test_chunk.drop(col, axis=1), dt_test_text], axis=1, sort=False)
-            text_cols.extend(curent_text_cols)
+            if col in dataset_manager.static_text_cols:
+                static_text_cols.extend(current_text_cols)
+            else:
+                dynamic_text_cols.extend(current_text_cols)
             del dt_train_text, dt_test_text
         
         # generate prefixes
@@ -90,14 +100,14 @@ def create_and_evaluate_model(args):
             if cls_encoding == text_enc:
                 cls_encoder_args = {'case_id_col': dataset_manager.case_id_col, 
                     'static_cat_cols': dataset_manager.static_cat_cols,
-                    'static_num_cols': dataset_manager.static_num_cols, 
+                    'static_num_cols': dataset_manager.static_num_cols + static_text_cols, 
                     'dynamic_cat_cols': dataset_manager.dynamic_cat_cols,
-                    'dynamic_num_cols': dataset_manager.dynamic_num_cols + text_cols, 
+                    'dynamic_num_cols': dataset_manager.dynamic_num_cols + dynamic_text_cols, 
                     'fillna': True}
             else:
                 cls_encoder_args = {'case_id_col': dataset_manager.case_id_col, 
                     'static_cat_cols': dataset_manager.static_cat_cols,
-                    'static_num_cols': dataset_manager.static_num_cols, 
+                    'static_num_cols': dataset_manager.static_num_cols + static_text_cols, 
                     'dynamic_cat_cols': dataset_manager.dynamic_cat_cols,
                     'dynamic_num_cols': dataset_manager.dynamic_num_cols, 
                     'fillna': True}
@@ -107,9 +117,9 @@ def create_and_evaluate_model(args):
                     'static_cat_cols': [],
                     'static_num_cols': [], 
                     'dynamic_cat_cols': [],
-                    'dynamic_num_cols': text_cols, 
+                    'dynamic_num_cols': dynamic_text_cols, 
                     'fillna': True}
-            encoders.append((method, EncoderFactory.get_encoder(method, **cls_encoder_args)))
+            encoders.append((text_enc, EncoderFactory.get_encoder(text_enc, **cls_encoder_args)))
                 
         feature_combiner = FeatureUnion(encoders)
         
@@ -248,13 +258,25 @@ for dataset_name in datasets:
     cls_params = set(space.keys())
     
     if text_method == "bong":
-        space["ngram_max"] = scope.int(hp.quniform('ngram_max', 1, 3, 1))
-        space["nr_selected"] = scope.int(hp.qloguniform('nr_selected', np.log(100), np.log(5000), 1))
+        #if dataset_name in ["crm2", "github"]:
+        #    space["ngram_max"] = scope.int(hp.quniform('ngram_max', 1, 1, 1))
+        #else:
+        if dataset_name == "crm2":
+            space["ngram_max"] = scope.int(hp.quniform('ngram_max', 1, 2, 1))
+        else:
+            space["ngram_max"] = scope.int(hp.quniform('ngram_max', 1, 3, 1))
+        #space["nr_selected"] = scope.int(hp.qloguniform('nr_selected', np.log(100), np.log(5000), 1))
         space["tfidf"] = hp.choice('tfidf', [True, False])
         
     elif text_method == "nb":
-        space["ngram_max"] = scope.int(hp.quniform('ngram_max', 1, 3, 1))
-        space["nr_selected"] = scope.int(hp.qloguniform('nr_selected', np.log(100), np.log(5000), 1))
+        #if dataset_name in ["crm2", "github"]:
+        #    space["ngram_max"] = scope.int(hp.quniform('ngram_max', 1, 1, 1))
+        #else:
+        if dataset_name == "crm2":
+            space["ngram_max"] = scope.int(hp.quniform('ngram_max', 1, 2, 1))
+        else:
+            space["ngram_max"] = scope.int(hp.quniform('ngram_max', 1, 3, 1))
+        #space["nr_selected"] = scope.int(hp.qloguniform('nr_selected', np.log(100), np.log(5000), 1))
         space["alpha"] = hp.loguniform('alpha', np.log(0.01), np.log(1))
         
     elif text_method == "lda":

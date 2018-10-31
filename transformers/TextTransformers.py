@@ -8,6 +8,7 @@ from sklearn.base import TransformerMixin
 from sklearn.feature_extraction.text import TfidfVectorizer, CountVectorizer
 from sklearn.feature_selection import SelectKBest, chi2
 import os.path
+from collections import defaultdict
 
 class LDATransformer(TransformerMixin):
 
@@ -47,7 +48,7 @@ class LDATransformer(TransformerMixin):
         return self
 
     
-    def transform(self, X):
+    def transform(self, X, y=None):
         ncol = X.shape[1]
         corpus = self._generate_corpus_data(X)
         topics = self.lda_model[corpus]
@@ -56,7 +57,7 @@ class LDATransformer(TransformerMixin):
             for (idx, prob) in topics[i]:
                 topic_data[i,idx] = prob
         topic_data = np.hstack(np.vsplit(topic_data, ncol))
-        topic_colnames = ["topic%s_event%s"%(topic+1, event+1) for event in range(ncol) for topic in range(self.num_topics)]
+        topic_colnames = ["topic%s_col%s"%(topic+1, col+1) for col in range(ncol) for topic in range(self.num_topics)]
 
         return pd.DataFrame(topic_data, columns=topic_colnames, index=X.index)
     
@@ -141,12 +142,12 @@ class PVTransformer(TransformerMixin):
         return train_X
     
     
-    def transform(self, X):
+    def transform(self, X, y=None):
         ncol = X.shape[1]
         test_comments = X.values.flatten('F')
         vecs = [self.pv_model.infer_vector(comment.split()) for comment in test_comments]
         test_X = np.hstack(np.vsplit(np.array(vecs), ncol))
-        colnames = ["pv%s_event%s"%(vec+1, event+1) for event in range(ncol) for vec in range(self.size)]
+        colnames = ["pv%s_col%s"%(vec+1, col+1) for col in range(ncol) for vec in range(self.size)]
         
         test_X = pd.DataFrame(test_X, columns=colnames, index=X.index)
         test_X.to_csv("test_X_pv2.csv", sep=";")
@@ -174,11 +175,13 @@ class BoNGTransformer(TransformerMixin):
         
         self.vectorizer = None
         self.feature_selector = SelectKBest(chi2, k=self.nr_selected)
-        self.selected_cols = None
+        #self.selected_cols = None
         
         
     def fit(self, X, y):
         data = X.values.flatten('F')
+        ncol = X.shape[1]
+            
         if self.tfidf:
             self.vectorizer = TfidfVectorizer(ngram_range=(self.ngram_min,self.ngram_max), min_df=self.min_freq)
         else:
@@ -188,25 +191,28 @@ class BoNGTransformer(TransformerMixin):
         # select features
         if self.nr_selected=="all" or len(self.vectorizer.get_feature_names()) <= self.nr_selected:
             self.feature_selector = SelectKBest(chi2, k="all")
-        self.feature_selector.fit(bong, y)
+        self.feature_selector.fit(bong, y.repeat(ncol))
         
         # remember selected column names
-        if self.nr_selected=="all":
-            self.selected_cols = np.array(self.vectorizer.get_feature_names())
-        else:
-            selected_col_idxs = self.feature_selector.scores_.argsort()[-self.nr_selected:]
-            self.selected_cols = np.array(self.vectorizer.get_feature_names())[selected_col_idxs]
+        #if self.nr_selected=="all":
+        #    self.selected_cols = np.array(self.vectorizer.get_feature_names())
+        #else:
+        #    selected_col_idxs = self.feature_selector.scores_.argsort()[-self.nr_selected:]
+        #    self.selected_cols = np.array(self.vectorizer.get_feature_names())[selected_col_idxs]
         
         return self
     
     
-    def transform(self, X):
+    def transform(self, X, y=None):
+        ncol = X.shape[1]
         data = X.values.flatten('F')
         bong = self.vectorizer.transform(data)
         bong = self.feature_selector.transform(bong)
-        bong = bong.toarray()
+        bong = np.hstack(np.vsplit(bong.toarray(), ncol))
+        colnames = ["%s_col%s"%(col_idx, col+1) for col in range(ncol) for col_idx in range(bong.shape[1])]
+        #colnames = ["%s_col%s"%(colname, col+1) for col in range(ncol) for colname in self.selected_cols]
         
-        return pd.DataFrame(bong, columns=self.selected_cols, index=X.index)
+        return pd.DataFrame(bong, columns=colnames, index=X.index)
     
     
 class NBLogCountRatioTransformer(TransformerMixin):
@@ -228,12 +234,13 @@ class NBLogCountRatioTransformer(TransformerMixin):
         
     def fit(self, X, y):
         data = X.values.flatten('F')
+        ncol = X.shape[1]
         bong = self.vectorizer.fit_transform(data)
         
         # calculate nb ratios
-        pos_label_idxs = np.array(y == self.pos_label)
+        pos_label_idxs = np.array(y.repeat(ncol) == self.pos_label)
         if sum(pos_label_idxs) > 0:
-            if len(y) - sum(pos_label_idxs) > 0:
+            if len(y.repeat(ncol)) - sum(pos_label_idxs) > 0:
                 pos_bong = bong[pos_label_idxs,:]
                 neg_bong = bong[~pos_label_idxs,:]
             else:
@@ -256,15 +263,16 @@ class NBLogCountRatioTransformer(TransformerMixin):
         self.r_selected = r_selected
         self.nb_r = r[r_selected]
         
-        if self.nr_selected=="all":
-            self.selected_cols = np.array(self.vectorizer.get_feature_names())
-        else:
-            self.selected_cols = np.array(self.vectorizer.get_feature_names())[self.r_selected]
+        #if self.nr_selected=="all":
+        #    self.selected_cols = np.array(self.vectorizer.get_feature_names())
+        #else:
+        #    self.selected_cols = np.array(self.vectorizer.get_feature_names())[self.r_selected]
             
         return self
     
     
-    def transform(self, X):
+    def transform(self, X, y=None):
+        ncol = X.shape[1]
         data = X.values.flatten('F')
         bong = self.vectorizer.transform(data)
         bong = bong.tocsc()
@@ -272,6 +280,8 @@ class NBLogCountRatioTransformer(TransformerMixin):
         
         # generate transformed selected data
         bong = bong * self.nb_r
+        bong = np.hstack(np.vsplit(bong, ncol))
+        colnames = ["%s_col%s"%(col_idx, col+1) for col in range(ncol) for col_idx in range(bong.shape[1])]
+        #colnames = ["%s_col%s"%(colname, col+1) for col in range(ncol) for colname in self.selected_cols]
         
-        return pd.DataFrame(bong, columns=self.selected_cols, index=X.index)
-    
+        return pd.DataFrame(bong, columns=colnames, index=X.index)

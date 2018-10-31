@@ -18,7 +18,7 @@ import csv
 import pandas as pd
 import numpy as np
 
-from sklearn.metrics import roc_auc_score
+from sklearn.metrics import roc_auc_score, precision_recall_fscore_support
 from sklearn.pipeline import FeatureUnion, Pipeline
 from sklearn.preprocessing import StandardScaler
 
@@ -28,8 +28,8 @@ import BucketFactory
 import ClassifierFactory
 
 
-PARAMS_DIR = "cv_results_revision"
-RESULTS_DIR = "results"
+PARAMS_DIR = "val_results_unstructured"
+RESULTS_DIR = "results_unstructured"
 
 dataset_ref = argv[1]
 method_name = argv[2]
@@ -72,13 +72,14 @@ if not os.path.exists(os.path.join(RESULTS_DIR)):
     
 for dataset_name in datasets:
     
-    # load optimal params
-    optimal_params_filename = os.path.join(PARAMS_DIR, "optimal_params_%s_%s_%s.pickle" % (cls_method, dataset_name, method_name))
-    if not os.path.isfile(optimal_params_filename) or os.path.getsize(optimal_params_filename) <= 0:
-        continue
-        
-    with open(optimal_params_filename, "rb") as fin:
-        args = pickle.load(fin)
+    if bucket_method != "prefix":
+        # load optimal params
+        optimal_params_filename = os.path.join(PARAMS_DIR, "optimal_params_%s_%s_%s.pickle" % (cls_method, dataset_name, method_name))
+        if not os.path.isfile(optimal_params_filename) or os.path.getsize(optimal_params_filename) <= 0:
+            continue
+
+        with open(optimal_params_filename, "rb") as fin:
+            args = pickle.load(fin)
     
     # read the data
     dataset_manager = DatasetManager(dataset_name)
@@ -94,10 +95,7 @@ for dataset_name in datasets:
         max_prefix_length = min(40, dataset_manager.get_pos_case_length_quantile(data, 0.90))
 
     # split into training and test
-    if dataset_name in ["github", "crm2", "dc"]:
-        train, test = dataset_manager.split_data(data, train_ratio, split="random", seed=22)
-    else:
-        train, test = dataset_manager.split_data_strict(data, train_ratio, split="temporal")
+    train, test = dataset_manager.split_data_strict(data, train_ratio, split="temporal")
     overall_class_ratio = dataset_manager.get_class_ratio(train)
     
     # generate prefix logs
@@ -126,8 +124,16 @@ for dataset_name in datasets:
     test_y_all = []
     nr_events_all = []
     for bucket in set(bucket_assignments_test):
-        current_args = args if bucket_method != "prefix" else args[bucket]
-        current_args["n_estimators"] = 500
+        if bucket_method == "prefix":
+            # load optimal params
+            optimal_params_filename = os.path.join(PARAMS_DIR, "optimal_params_%s_%s_%s_%s.pickle" % (cls_method, dataset_name, method_name, bucket))
+            if not os.path.isfile(optimal_params_filename) or os.path.getsize(optimal_params_filename) <= 0:
+                continue
+
+            with open(optimal_params_filename, "rb") as fin:
+                args = pickle.load(fin)
+                
+        args["n_estimators"] = 500
             
         # select prefixes for the given bucket
         relevant_train_cases_bucket = dataset_manager.get_indexes(dt_train_prefixes)[bucket_assignments_train == bucket]
@@ -143,7 +149,7 @@ for dataset_name in datasets:
 
         # initialize pipeline for sequence encoder and classifier
         feature_combiner = FeatureUnion([(method, EncoderFactory.get_encoder(method, **cls_encoder_args)) for method in methods])
-        cls = ClassifierFactory.get_classifier(cls_method, current_args, random_state, min_cases_for_training, overall_class_ratio)
+        cls = ClassifierFactory.get_classifier(cls_method, args, random_state, min_cases_for_training, overall_class_ratio)
 
         if cls_method == "svm" or cls_method == "logit":
             pipeline = Pipeline([('encoder', feature_combiner), ('scaler', StandardScaler()), ('cls', cls)])
@@ -166,8 +172,12 @@ for dataset_name in datasets:
         dt_results = pd.DataFrame({"actual": test_y_all, "predicted": preds_all, "nr_events": nr_events_all})
         for nr_events, group in dt_results.groupby("nr_events"):
             auc = np.nan if len(set(group.actual)) < 2 else roc_auc_score(group.actual, group.predicted)
-            spamwriter.writerow([dataset_name, method_name, cls_method, nr_events, -1, "auc", auc])
+            spamwriter.writerow([dataset_name, method_name, cls_method, nr_events, "auc", auc])
             print(nr_events, auc)
+            prec, rec, fscore, _ = precision_recall_fscore_support(group.actual, [0 if pred < 0.5 else 1 for pred in group.predicted], average="binary")
+            spamwriter.writerow([dataset_name, method_name, cls_method, nr_events, "prec", prec])
+            spamwriter.writerow([dataset_name, method_name, cls_method, nr_events, "rec", rec])
+            spamwriter.writerow([dataset_name, method_name, cls_method, nr_events, "fscore", fscore])
 
         auc = roc_auc_score(dt_results.actual, dt_results.predicted)
         spamwriter.writerow([dataset_name, method_name, cls_method, -1, "auc", auc])

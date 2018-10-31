@@ -70,7 +70,7 @@ cls_method = argv[3]
 n_iter = int(argv[4])
 
 train_ratio = 0.8
-n_splits = 1
+n_splits = 3
 random_state = 22
 min_cases_for_training = 1
 
