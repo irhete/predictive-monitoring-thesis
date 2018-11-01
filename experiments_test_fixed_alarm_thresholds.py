@@ -21,8 +21,8 @@ def calculate_cost(x, costs):
     return costs[int(x['prediction']), int(x['actual'])](x)
 
 dataset_name = argv[1]
-predictions_dir = argv[2]
-results_dir = argv[3]
+method_name = argv[2]
+cls_method = argv[3]
 
 # create results directory
 if not os.path.exists(os.path.join(RESULTS_DIR)):

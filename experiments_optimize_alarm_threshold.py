@@ -17,7 +17,6 @@ import csv
 from hyperopt import Trials, STATUS_OK, tpe, fmin, hp
 import hyperopt
 
-RESULTS_DIR = "results_alarms"
 PREDS_DIR = "predictions"
 PARAMS_DIR = "optimal_alarm_thresholds"
 
@@ -57,8 +56,8 @@ method_name = argv[2]
 cls_method = argv[3]
 
 # create output directory
-if not os.path.exists(os.path.join(RESULTS_DIR)):
-    os.makedirs(os.path.join(RESULTS_DIR))
+if not os.path.exists(os.path.join(PARAMS_DIR)):
+    os.makedirs(os.path.join(PARAMS_DIR))
     
 # read the data
 dataset_manager = DatasetManager(dataset_name)

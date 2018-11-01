@@ -31,7 +31,7 @@ import BucketFactory
 import ClassifierFactory
 
 
-PARAMS_DIR = "cv_results"
+PARAMS_DIR = "cv_results_revision"
 PREDS_DIR = "predictions"
 
 dataset_ref = argv[1]

@@ -56,8 +56,8 @@ method_name = argv[2]
 cls_method = argv[3]
 
 # create output directory
-if not os.path.exists(os.path.join(RESULTS_DIR)):
-    os.makedirs(os.path.join(RESULTS_DIR))
+if not os.path.exists(os.path.join(PARAMS_DIR)):
+    os.makedirs(os.path.join(PARAMS_DIR))
     
 # read the data
 dataset_manager = DatasetManager(dataset_name)
