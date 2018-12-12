@@ -1,5 +1,8 @@
 # Predictive monitoring of business processes
 
+Datasets:
+* Github data: https://github.com/riivo/github-issue-lifetime-prediction
+
 ## Chapter 4: Benchmarking Existing Predictive Process Monitoring Techniques
 
 1. Hyperparameter optimization
@@ -17,7 +20,16 @@
 2. Training and evaluating final models
 2.1. experiments_with_unstructured_data.py
 
-## Chapter 6: Alarm-Based Predictive Process Monitoring
+## Chapter 6: Temporal Stability in Predictive Process Monitoring
+
+1. Hyperparameter optimization
+1.1. experiments_optimize_params.py
+1.2. experiments_optimize_params_lstm.py
+1.3. experiments_optimize_params_single_multirun.py
+2. Training final models and writing predictions
+2.1. experiments_stability.py
+
+## Chapter 7: Alarm-Based Predictive Process Monitoring
 
 1. Hyperparameter optimization
 1.1. experiments_optimize_params.py
@@ -33,12 +45,5 @@
 4.3. experiments_test_optimal_alarm_threshold_ccom.py
 4.4. experiments_test_optimal_alarm_threshold_eff.py
 
-## Chapter 7: Temporal Stability in Predictive Process Monitoring
 
-1. Hyperparameter optimization
-1.1. experiments_optimize_params.py
-1.2. experiments_optimize_params_lstm.py
-1.3. experiments_optimize_params_single_multirun.py
-2. Training final models and writing predictions
-2.1. experiments_stability.py
 
