@@ -5,13 +5,14 @@ activity_col = {}
 resource_col = {}
 timestamp_col = {}
 label_col = {}
-text_cols = {}
 pos_label = {}
 neg_label = {}
 dynamic_cat_cols = {}
 static_cat_cols = {}
 dynamic_num_cols = {}
 static_num_cols = {}
+static_text_cols = {}
+dynamic_text_cols = {}
 filename = {}
 
 logs_dir = "/gpfs/hpchome/etais/hpc_irheta/predictive-monitoring-benchmark/labeled_logs_csv_processed"
@@ -216,3 +217,30 @@ for formula in range(1,5):
     static_cat_cols[dataset] = ["Diagnosis", "Treatment code", "Diagnosis code", "Specialism code", "Diagnosis Treatment Combination ID"]
     dynamic_num_cols[dataset] = ["Number of executions", "hour", "weekday", "month", "timesincemidnight", "timesincelastevent", "timesincecasestart", "event_nr", "open_cases"]
     static_num_cols[dataset] = ["Age"]
+    
+    
+#### Github settings ####
+dataset = "github"
+
+filename[dataset] = os.path.join(logs_dir, "github_data.csv")
+case_id_col[dataset] = "issue_id"
+label_col[dataset] = "closedin12"
+dynamic_text_cols[dataset] = ['combined_text']#['comment_text']
+static_text_cols[dataset] = []#['cleaned_text']
+pos_label[dataset] = "1"
+neg_label[dataset] = "0"
+timestamp_col[dataset] = "created_at"
+activity_col[dataset] = "issue_id"
+
+# features for classifier
+dynamic_num_cols[dataset] = ['comment_before_12month', 'actors', 
+                             'commits_by_commiters_before3m', 'commits_by_commenters_nunique', 'ev_assigned', 'ev_labeled', 
+                             'ev_mentioned', 'ev_referenced', 'ev_subscribed', 'created_before_project2w_sliding',
+                             'closed_before_project2w_sliding', 'commit_before_project2w_sliding', 'comment_len_mean', 
+                              'event_nr']
+dynamic_cat_cols[dataset] = []
+static_cat_cols[dataset] = []
+static_num_cols[dataset] = ['lbl_bug', 'lbl_documentation', 'lbl_duplicate', 'lbl_enhancement', 'lbl_feature', 
+                            'lbl_feature request', 'lbl_high priority', 'lbl_invalid', 'lbl_question', 'lbl_task', 
+                            'lbl_wontfix', 'created_before3m', 'closed_before3m', 'commit_before3m', 'created_before_project3m', 
+                             'closed_before_project3m', 'commit_before_project3m', 'body_len_strip']
