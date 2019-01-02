@@ -7,6 +7,10 @@ Original datasets:
 Preprocessed datasets for predictive process monitoring:
 * https://drive.google.com/file/d/1DDP7OKQhD8cno2tbSpLlIPZ-Mh5y-XUC/view?usp=sharing
 
+For the preprocessing scripts, see https://github.com/irhete/predictive-monitoring-benchmark
+
+Executing commands for different scripts can be found in the following Jupyter notebook: ``run_experiments.ipynb``
+
 ## Chapter 4: Benchmarking Existing Predictive Process Monitoring Techniques
 
 1. Hyperparameter optimization
