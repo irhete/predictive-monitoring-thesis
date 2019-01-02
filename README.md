@@ -10,11 +10,11 @@ Preprocess datasets for predictive process monitoring:
 ## Chapter 4: Benchmarking Existing Predictive Process Monitoring Techniques
 
 1. Hyperparameter optimization
-* experiments_optimize_params.py
+  1.1. experiments_optimize_params.py
 2. Training and evaluating final models
-* experiments.py
+  2.1. experiments.py
 3. Execution times of final models
-* experiments_performance.py
+  3.2. experiments_performance.py
 
 ## Chapter 5: Predictive Monitoring with Structured and Unstructured Data
 
