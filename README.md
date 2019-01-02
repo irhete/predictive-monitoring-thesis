@@ -64,14 +64,17 @@ Preprocessed datasets for predictive process monitoring:
    - ``experiments_write_predictions_alarms.py``
    - ``experiments_write_predictions_alarms_unstructured.py``
 3. Optimizing alarm thresholds
-3.1. experiments_optimize_alarm_threshold.py
-3.2. experiments_optimize_alarm_threshold_ccom.py
-3.3. experiments_optimize_alarm_threshold_eff.py
+   - ``experiments_optimize_alarm_threshold.py``
+   - ``experiments_optimize_alarm_threshold_eff.py``
+   - ``experiments_optimize_alarm_threshold_ccom.py``
 4. Evaluating alarming thresholds
-4.1. experiments_test_fixed_alarm_thresholds.py
-4.2. experiments_test_optimal_alarm_threshold.py
-4.3. experiments_test_optimal_alarm_threshold_ccom.py
-4.4. experiments_test_optimal_alarm_threshold_eff.py
+   - ``experiments_test_fixed_alarm_thresholds.py`` (RQ1 baselines)
+   - ``experiments_test_optimal_alarm_threshold.py`` (RQ1)
+   - ``experiments_test_optimal_alarm_threshold_eff.py`` (RQ2)
+   - ``experiments_test_optimal_alarm_threshold_ccom.py`` (RQ3)
+5. Plots and tables
+   - ``generate_latex_tables.ipynb``
+   - ``plot_alarm_results.R``
 
 
 
