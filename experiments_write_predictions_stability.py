@@ -1,10 +1,10 @@
-"""This script trains and evaluates a predictive model for outcome-oriented predictive process monitoring.
+"""This script trains a predictive model for outcome-oriented predictive process monitoring and writes the predictions to a file.
 
 Usage:
-  experiments.py <dataset> <method> <classifier>
+    experiments_write_predictions_stability.py <dataset> <method> <classifier>
 
 Example:
-    experiments.py bpic2012_cancelled single_laststate xgboost
+    experiments_write_predictions_stability.py bpic2012_cancelled single_laststate xgboost
   
 Author: Irene Teinemaa [irene.teinemaa@gmail.com]
 """
@@ -72,6 +72,7 @@ if not os.path.exists(DETAILED_RESULTS_DIR):
 for dataset_name in datasets:
     
     detailed_results = pd.DataFrame()
+    detailed_results_val = pd.DataFrame()
     
     # load optimal params
     optimal_params_filename = os.path.join(PARAMS_DIR, "optimal_params_%s_%s_%s.pickle" % (cls_method.replace("_calibrated", ""), dataset_name, method_name))
@@ -179,22 +180,17 @@ for dataset_name in datasets:
         case_ids = list(dt_test_bucket.groupby(dataset_manager.case_id_col).first().index)
         current_results = pd.DataFrame({"dataset": dataset_name, "cls": cls_method, "params": method_name, "nr_events": bucket, "predicted": preds, "actual": test_y, "case_id": case_ids})
         detailed_results = pd.concat([detailed_results, current_results], axis=0, sort=False)
+        
+        if "calibrate" in cls_method:
+            preds = cls.predict_proba(X_val)[:,1]
+            case_ids = list(dt_val_bucket.groupby(dataset_manager.case_id_col).first().index)
+            current_results = pd.DataFrame({"dataset": dataset_name, "cls": cls_method, "params": method_name, "nr_events": bucket, "predicted": preds, "actual": y_val, "case_id": case_ids})
+            detailed_results_val = pd.concat([detailed_results_val, current_results], axis=0, sort=False)
 
     # write results
-    outfile = os.path.join(RESULTS_DIR, "results_%s_%s_%s.csv" % (cls_method, dataset_name, method_name))
-    detailed_results_file = os.path.join(DETAILED_RESULTS_DIR, "detailed_results_%s_%s_%s.csv"%(cls_method, dataset_name, method_name)) 
+    #outfile = os.path.join(RESULTS_DIR, "results_%s_%s_%s.csv" % (cls_method, dataset_name, method_name))
+    detailed_results_file = os.path.join(DETAILED_RESULTS_DIR, "detailed_results_test_%s_%s_%s.csv"%(cls_method, dataset_name, method_name)) 
     detailed_results.to_csv(detailed_results_file, sep=";", index=False)
-
-    with open(outfile, 'w') as csvfile:
-        spamwriter = csv.writer(csvfile, delimiter=';', quoting=csv.QUOTE_NONE)
-        spamwriter.writerow(["dataset", "method", "cls", "nr_events", "metric", "score"])
-
-        dt_results = pd.DataFrame({"actual": test_y_all, "predicted": preds_all, "nr_events": nr_events_all})
-        for nr_events, group in dt_results.groupby("nr_events"):
-            auc = np.nan if len(set(group.actual)) < 2 else roc_auc_score(group.actual, group.predicted)
-            spamwriter.writerow([dataset_name, method_name, cls_method, nr_events, -1, "auc", auc])
-            print(nr_events, auc)
-
-        auc = roc_auc_score(dt_results.actual, dt_results.predicted)
-        spamwriter.writerow([dataset_name, method_name, cls_method, -1, "auc", auc])
-        print(auc)
+    if "calibrate" in cls_method:
+        detailed_results_file = os.path.join(DETAILED_RESULTS_DIR, "detailed_results_val_%s_%s_%s.csv"%(cls_method, dataset_name, method_name)) 
+        detailed_results_val.to_csv(detailed_results_file, sep=";", index=False)

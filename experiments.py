@@ -28,12 +28,18 @@ import BucketFactory
 import ClassifierFactory
 
 
-PARAMS_DIR = "val_results_unstructured"
-RESULTS_DIR = "results_unstructured"
+PARAMS_DIR = "cv_results_revision"
 
 dataset_ref = argv[1]
 method_name = argv[2]
 cls_method = argv[3]
+truncate_traces = ("truncate" if len(argv) <= 4 else argv[4])
+
+if truncate_traces == "truncate":
+    RESULTS_DIR = "results_unstructured"
+else:
+    RESULTS_DIR = "results_nottrunc"
+
 
 gap = 1
 
@@ -72,7 +78,7 @@ if not os.path.exists(os.path.join(RESULTS_DIR)):
     
 for dataset_name in datasets:
     
-    if bucket_method != "prefix":
+    if bucket_method != "prefix" or dataset_name not in ["dc", "crm2", "github"]:
         # load optimal params
         optimal_params_filename = os.path.join(PARAMS_DIR, "optimal_params_%s_%s_%s.pickle" % (cls_method, dataset_name, method_name))
         if not os.path.isfile(optimal_params_filename) or os.path.getsize(optimal_params_filename) <= 0:
@@ -87,13 +93,16 @@ for dataset_name in datasets:
 
     # determine min and max (truncated) prefix lengths
     min_prefix_length = 1
-    if "traffic_fines" in dataset_name:
-        max_prefix_length = 10
-    elif "bpic2017" in dataset_name:
-        max_prefix_length = min(20, dataset_manager.get_pos_case_length_quantile(data, 0.90))
+    if truncate_traces == "truncate":
+        if "traffic_fines" in dataset_name:
+            max_prefix_length = 10
+        elif "bpic2017" in dataset_name:
+            max_prefix_length = min(20, dataset_manager.get_pos_case_length_quantile(data, 0.90))
+        else:
+            max_prefix_length = min(40, dataset_manager.get_pos_case_length_quantile(data, 0.90))
     else:
-        max_prefix_length = min(40, dataset_manager.get_pos_case_length_quantile(data, 0.90))
-
+        max_prefix_length = dataset_manager.get_max_case_length(data)
+        
     # split into training and test
     train, test = dataset_manager.split_data_strict(data, train_ratio, split="temporal")
     overall_class_ratio = dataset_manager.get_class_ratio(train)
@@ -124,16 +133,19 @@ for dataset_name in datasets:
     test_y_all = []
     nr_events_all = []
     for bucket in set(bucket_assignments_test):
-        if bucket_method == "prefix":
+        if bucket_method == "prefix" and dataset_name  in ["dc", "crm2", "github"]:
             # load optimal params
             optimal_params_filename = os.path.join(PARAMS_DIR, "optimal_params_%s_%s_%s_%s.pickle" % (cls_method, dataset_name, method_name, bucket))
             if not os.path.isfile(optimal_params_filename) or os.path.getsize(optimal_params_filename) <= 0:
                 continue
 
             with open(optimal_params_filename, "rb") as fin:
-                args = pickle.load(fin)
+                current_args = pickle.load(fin)
                 
-        args["n_estimators"] = 500
+        else:
+            current_args = args if bucket_method != "prefix" else args[bucket]
+
+        current_args["n_estimators"] = 500
             
         # select prefixes for the given bucket
         relevant_train_cases_bucket = dataset_manager.get_indexes(dt_train_prefixes)[bucket_assignments_train == bucket]
@@ -149,7 +161,7 @@ for dataset_name in datasets:
 
         # initialize pipeline for sequence encoder and classifier
         feature_combiner = FeatureUnion([(method, EncoderFactory.get_encoder(method, **cls_encoder_args)) for method in methods])
-        cls = ClassifierFactory.get_classifier(cls_method, args, random_state, min_cases_for_training, overall_class_ratio)
+        cls = ClassifierFactory.get_classifier(cls_method, current_args, random_state, min_cases_for_training, overall_class_ratio)
 
         if cls_method == "svm" or cls_method == "logit":
             pipeline = Pipeline([('encoder', feature_combiner), ('scaler', StandardScaler()), ('cls', cls)])

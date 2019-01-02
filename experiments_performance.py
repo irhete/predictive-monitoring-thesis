@@ -29,6 +29,7 @@ import BucketFactory
 import ClassifierFactory
 
 PARAMS_DIR = "cv_results_revision"
+#PARAMS_DIR = "val_results_unstructured"
 RESULTS_DIR = "results_performance"
 
 dataset_ref = argv[1]
@@ -73,13 +74,14 @@ if not os.path.exists(os.path.join(RESULTS_DIR)):
     
 for dataset_name in datasets:
     
-    # load optimal params
-    optimal_params_filename = os.path.join(PARAMS_DIR, "optimal_params_%s_%s_%s.pickle" % (cls_method, dataset_name, method_name))
-    if not os.path.isfile(optimal_params_filename) or os.path.getsize(optimal_params_filename) <= 0:
-        continue
-        
-    with open(optimal_params_filename, "rb") as fin:
-        args = pickle.load(fin)
+    if bucket_method != "prefix":
+        # load optimal params
+        optimal_params_filename = os.path.join(PARAMS_DIR, "optimal_params_%s_%s_%s.pickle" % (cls_method, dataset_name, method_name))
+        if not os.path.isfile(optimal_params_filename) or os.path.getsize(optimal_params_filename) <= 0:
+            continue
+
+        with open(optimal_params_filename, "rb") as fin:
+            args = pickle.load(fin)
     
     # read the data
     dataset_manager = DatasetManager(dataset_name)
@@ -105,17 +107,16 @@ for dataset_name in datasets:
             
     offline_total_times = []
     online_event_times = []
-    train_prefix_generation_times = []
     
     # multiple iterations for performance calculations
     for ii in range(n_iter):
         print("Starting iteration %s ..." % ii)
+        time_train = 0
         
         # create train prefix log
-        start_train_prefix_generation = time.time()
+        start = time.time()
         dt_train_prefixes = dataset_manager.generate_prefix_data(train, min_prefix_length, max_prefix_length, gap)
-        train_prefix_generation_time = time.time() - start_train_prefix_generation
-        train_prefix_generation_times.append(train_prefix_generation_time)
+        time_train += time.time() - start
             
         # Bucketing prefixes based on control flow
         bucketer_args = {'encoding_method': bucket_encoding, 
@@ -133,20 +134,23 @@ for dataset_name in datasets:
                         'fillna': True}
         bucketer = BucketFactory.get_bucketer(bucket_method, **bucketer_args)
 
-        start_offline_time_bucket = time.time()
+        start = time.time()
         bucket_assignments_train = bucketer.fit_predict(dt_train_prefixes)
-        offline_time_bucket = time.time() - start_offline_time_bucket
+        time_train += time.time() - start
 
         bucket_assignments_test = bucketer.predict(dt_test_prefixes)
 
-        preds_all = []
-        test_y_all = []
-        nr_events_all = []
-        offline_time_fit = 0
-        current_online_event_times = []
         for bucket in set(bucket_assignments_test):
-            current_args = args if bucket_method != "prefix" else args[bucket]
-            current_args["n_estimators"] = 500
+            if bucket_method == "prefix":
+                # load optimal params
+                optimal_params_filename = os.path.join(PARAMS_DIR, "optimal_params_%s_%s_%s_%s.pickle" % (cls_method, dataset_name, method_name, bucket))
+                if not os.path.isfile(optimal_params_filename) or os.path.getsize(optimal_params_filename) <= 0:
+                    continue
+
+                with open(optimal_params_filename, "rb") as fin:
+                    args = pickle.load(fin)
+            
+            args["n_estimators"] = 500
             
             # select prefixes for the given bucket
             relevant_train_cases_bucket = dataset_manager.get_indexes(dt_train_prefixes)[bucket_assignments_train == bucket]
@@ -156,14 +160,10 @@ for dataset_name in datasets:
             train_y = dataset_manager.get_label_numeric(dt_train_bucket)
             test_y = dataset_manager.get_label_numeric(dt_test_bucket)
             
-            # add data about prefixes in this bucket (class labels and prefix lengths)
-            nr_events_all.extend(list(dataset_manager.get_prefix_lengths(dt_test_bucket)))
-            test_y_all.extend(test_y)
-
             # initialize pipeline for sequence encoder and classifier
-            start_offline_time_fit = time.time()
+            start = time.time()
             feature_combiner = FeatureUnion([(method, EncoderFactory.get_encoder(method, **cls_encoder_args)) for method in methods])
-            cls = ClassifierFactory.get_classifier(cls_method, current_args, random_state, min_cases_for_training, 
+            cls = ClassifierFactory.get_classifier(cls_method, args, random_state, min_cases_for_training, 
                                                    overall_class_ratio)
 
             if cls_method == "svm" or cls_method == "logit":
@@ -173,7 +173,7 @@ for dataset_name in datasets:
 
             # fit pipeline
             pipeline.fit(dt_train_bucket, train_y)
-            offline_time_fit += time.time() - start_offline_time_fit
+            time_train += time.time() - start
 
             # predict separately for each prefix
             test_all_grouped = dt_test_bucket.groupby(dataset_manager.case_id_col)
@@ -181,43 +181,19 @@ for dataset_name in datasets:
                 start = time.time()
                 _ = bucketer.predict(group)
                 pred = pipeline.predict_proba(group)
-                pipeline_pred_time = time.time() - start
-                current_online_event_times.append(pipeline_pred_time / len(group))
-                preds_all.extend(pred)
+                time_test = (time.time() - start) / len(group)
+                online_event_times.append(time_test)
+        offline_total_times.append(time_train)
 
-        offline_total_time = offline_time_bucket + offline_time_fit + train_prefix_generation_time
-        offline_total_times.append(offline_total_time)
-        online_event_times.append(current_online_event_times)
-
+    offline_total_times = np.array(offline_total_times)
+    online_event_times = np.array(online_event_times)
+    
     # write results
-    outfile = os.path.join(RESULTS_DIR, "performance_results_%s_%s_%s_gap%s.csv" % (cls_method, dataset_name, method_name, gap))
+    outfile = os.path.join(RESULTS_DIR, "results_performance_%s_%s_%s.csv" % (cls_method, dataset_name, method_name))
     with open(outfile, 'w') as csvfile:
         spamwriter = csv.writer(csvfile, delimiter=';', quoting=csv.QUOTE_NONE)
-        spamwriter.writerow(["dataset", "method", "cls", "nr_events", "n_iter", "metric", "score"])
-        spamwriter.writerow([dataset_name, method_name, cls_method, -1, -1, "test_prefix_generation_time", 
-                             test_prefix_generation_time])
-        
-        for ii in range(len(offline_total_times)):
-            spamwriter.writerow([dataset_name, method_name, cls_method, -1, ii, "train_prefix_generation_time", 
-                                 train_prefix_generation_times[ii]])
-            spamwriter.writerow([dataset_name, method_name, cls_method, -1, ii, "offline_time_total", offline_total_times[ii]])
-            spamwriter.writerow([dataset_name, method_name, cls_method, -1, ii, "online_time_avg", 
-                                 np.mean(online_event_times[ii])])
-            spamwriter.writerow([dataset_name, method_name, cls_method, -1, ii, "online_time_std", np.std(online_event_times[ii])])
-            
-        dt_results = pd.DataFrame({"actual": test_y_all, "predicted": preds_all, "nr_events": nr_events_all})
-        for nr_events, group in dt_results.groupby("nr_events"):
-            auc = np.nan if len(set(group.actual)) < 2 else roc_auc_score(group.actual, group.predicted)
-            spamwriter.writerow([dataset_name, method_name, cls_method, nr_events, -1, "auc", auc])
-
-        spamwriter.writerow([dataset_name, method_name, cls_method, -1, -1, "auc", roc_auc_score(dt_results.actual, 
-                                                                                                 dt_results.predicted)])
-
-        online_event_times_flat = [t for iter_online_event_times in online_event_times for t in iter_online_event_times]
-        
-        spamwriter.writerow([dataset_name, method_name, cls_method, -1, -1, "online_time_avg", np.mean(online_event_times_flat)])
-        spamwriter.writerow([dataset_name, method_name, cls_method, -1, -1, "online_time_std", np.std(online_event_times_flat)])
-        spamwriter.writerow([dataset_name, method_name, cls_method, -1, -1, "offline_time_total_avg", 
-                             np.mean(offline_total_times)])
-        spamwriter.writerow([dataset_name, method_name, cls_method, -1, -1, "offline_time_total_std", np.std(offline_total_times)])
-        
+        spamwriter.writerow(["dataset", "bucket_enc", "text_method_enc", "cls", "metric", "score"])
+        spamwriter.writerow([dataset_name, method_name, "no_text", cls_method, "offline_total_avg", offline_total_times.mean()])
+        spamwriter.writerow([dataset_name, method_name, "no_text", cls_method, "offline_total_std", offline_total_times.std()])
+        spamwriter.writerow([dataset_name, method_name, "no_text", cls_method, "online_event_avg", online_event_times.mean()])
+        spamwriter.writerow([dataset_name, method_name, "no_text", cls_method, "online_event_std", online_event_times.std()])

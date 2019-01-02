@@ -209,10 +209,14 @@ class BoNGTransformer(TransformerMixin):
         bong = self.vectorizer.transform(data)
         bong = self.feature_selector.transform(bong)
         bong = np.hstack(np.vsplit(bong.toarray(), ncol))
-        colnames = ["%s_col%s"%(col_idx, col+1) for col in range(ncol) for col_idx in range(bong.shape[1])]
-        #colnames = ["%s_col%s"%(colname, col+1) for col in range(ncol) for colname in self.selected_cols]
+        #colnames = ["%s_col%s"%(col_idx, col+1) for col in range(ncol) for col_idx in range(bong.shape[1])]
+        if self.nr_selected=="all":
+            selected_cols = np.array(self.vectorizer.get_feature_names())
+        else:
+            selected_col_idxs = self.feature_selector.scores_.argsort()[-self.nr_selected:]
+            selected_cols = np.array(self.vectorizer.get_feature_names())[selected_col_idxs]
         
-        return pd.DataFrame(bong, columns=colnames, index=X.index)
+        return pd.DataFrame(bong, columns=selected_cols, index=X.index)
     
     
 class NBLogCountRatioTransformer(TransformerMixin):

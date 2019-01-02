@@ -114,7 +114,7 @@ for dataset_name in datasets:
             optimal_params_filename = os.path.join(PARAMS_DIR, "optimal_params_%s_%s_%s_%s_%s.pickle" % (cls_method, dataset_name, bucket_enc, nr_events, text_method_enc))
             
         if not os.path.isfile(optimal_params_filename) or os.path.getsize(optimal_params_filename) <= 0:
-            print("Optimal params for s% s% s% not found" % (cls_method, dataset_name, method_name))
+            print("Optimal params for %s %s %s not found" % (cls_method, dataset_name, method_name))
             continue
 
         with open(optimal_params_filename, "rb") as fin:
@@ -122,7 +122,6 @@ for dataset_name in datasets:
 
         # fit text models and transform for each event
         text_transformer_args = args_all["text_transformer_args"]
-        # fit text models and transform for each event
         if text_method in ["nb", "bong"]:
             text_transformer_args["nr_selected"] = 500
             if text_method == "nb":
@@ -132,7 +131,7 @@ for dataset_name in datasets:
         if dataset_name in ["github"]:
             text_transformer_args["min_freq"] = 10
         elif dataset_name in ["crm2"]:
-            text_transformer_args["min_freq"] = 10
+            text_transformer_args["min_freq"] = 20
             
         cls_args = args_all["cls_args"]
         cls_args['n_estimators'] = 500

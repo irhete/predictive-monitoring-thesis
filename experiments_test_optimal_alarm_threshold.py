@@ -54,7 +54,9 @@ with open(out_filename, 'w') as fout:
                               (x['prefix_nr']-1) / x['case_length'] * c_miss
                              ]])
         # load the optimal confidence threshold
-        conf_file = os.path.join(PARAMS_DIR, "optimal_confs_%s_%s_%s_%s.pickle" % (dataset_name, c_miss_weight, c_action_weight, c_postpone_weight))
+        conf_file = os.path.join(PARAMS_DIR, "optimal_confs_%s_%s_%s_%s_%s_%s.pickle" % (dataset_name, method_name, cls_method, 
+                                                                                   c_miss_weight, c_action_weight, 
+                                                                                   c_postpone_weight))
 
         with open(conf_file, "rb") as fin:
             conf_threshold = pickle.load(fin)['conf_threshold']

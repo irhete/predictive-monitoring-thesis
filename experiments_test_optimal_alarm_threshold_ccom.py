@@ -21,6 +21,9 @@ PARAMS_DIR = "optimal_alarm_thresholds_ccom"
 def calculate_cost(x, costs):
     return costs[int(x['prediction']), int(x['actual'])](x)
 
+def calculate_cost_baseline(x, costs):
+    return costs[0, int(x['actual'])](x)
+
 dataset_name = argv[1]
 method_name = argv[2]
 cls_method = argv[3]
@@ -66,7 +69,10 @@ with open(out_filename, 'w') as fout:
                                          ]])
                     
                 # load the optimal confidence threshold
-                conf_file = os.path.join(conf_threshold_dir, "optimal_confs_%s_%s_%s_%s_%s_%s.pickle" % (dataset_name, c_miss_weight, c_action_weight, c_postpone_weight, c_com_weight, early_type))
+                conf_file = os.path.join(PARAMS_DIR, "optimal_confs_%s_%s_%s_%s_%s_%s_%s_%s.pickle" % (dataset_name, method_name, 
+                                                                                           cls_method, c_miss_weight, 
+                                                                                           c_action_weight, c_postpone_weight, 
+                                                                                           c_com_weight, early_type))
 
                 with open(conf_file, "rb") as fin:
                     conf_threshold = pickle.load(fin)['conf_threshold']

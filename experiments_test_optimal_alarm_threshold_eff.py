@@ -21,6 +21,9 @@ PARAMS_DIR = "optimal_alarm_thresholds_eff"
 def calculate_cost(x, costs):
     return costs[int(x['prediction']), int(x['actual'])](x)
 
+def calculate_cost_baseline(x, costs):
+    return costs[0, int(x['actual'])](x)
+
 dataset_name = argv[1]
 method_name = argv[2]
 cls_method = argv[3]
@@ -39,7 +42,7 @@ dt_preds = pd.read_csv(os.path.join(PREDS_DIR, "preds_test_%s_%s_%s.csv" % (data
 out_filename = os.path.join(RESULTS_DIR, "results_%s_%s_%s_%s.csv" % (dataset_name, method_name, cls_method, method))
 with open(out_filename, 'w') as fout:
     writer = csv.writer(fout, delimiter=';', quotechar='', quoting=csv.QUOTE_NONE)
-    writer.writerow(["dataset", "method", "cls", "alarm_method", "metric", "value", "c_miss", "c_action", "c_postpone", "c_com", "early_type", "threshold"])
+    writer.writerow(["dataset", "method", "cls", "alarm_method", "metric", "value", "c_miss", "c_action", "c_postpone", "eff", "early_type", "threshold"])
 
     c_postpone_weight = 0
     cost_weights = [(1,1), (2,1), (3,1), (5,1), (10,1), (20,1), (40, 1)]
@@ -64,7 +67,11 @@ with open(out_filename, 'w') as fout:
                                           lambda x: c_action + c_miss * (1-eff)
                                          ]])
                 # load the optimal confidence threshold
-                conf_file = os.path.join(conf_threshold_dir, "optimal_confs_%s_%s_%s_%s_%s_%s.pickle" % (dataset_name, c_miss_weight, c_action_weight, c_postpone_weight, eff, early_type))
+                conf_file = os.path.join(PARAMS_DIR, "optimal_confs_%s_%s_%s_%s_%s_%s_%s_%s.pickle" % (dataset_name, method_name,
+                                                                                                 cls_method, c_miss_weight, 
+                                                                                                 c_action_weight, 
+                                                                                                 c_postpone_weight, eff, 
+                                                                                                 early_type))
 
                 with open(conf_file, "rb") as fin:
                     conf_threshold = pickle.load(fin)['conf_threshold']

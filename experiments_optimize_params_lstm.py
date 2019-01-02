@@ -1,12 +1,5 @@
 """This script optimizes hyperparameters for a deep neural network (with LSTM units) based predictive model for outcome-oriented predictive process monitoring.
 
-***
-The architecture of the neural network is based on the approach proposed in the following paper:
-Niek Tax, Ilya Verenich, Marcello La Rosa, Marlon Dumas: 
-Predictive Business Process Monitoring with LSTM Neural Networks. CAiSE 2017: 477-492,
-with code available at: https://github.com/verenich/ProcessSequencePrediction
-***
-
 Author: Irene Teinemaa [irene.teinemaa@gmail.com]
 """
 
@@ -68,7 +61,6 @@ def create_and_evaluate_model(params):
         model.add(Dropout(params["dropout"]))
         
     model.add(Dense(2, activation=activation, kernel_initializer='glorot_uniform'))
-    #model.add(Activation(tf.nn.sigmoid))
     opt = Adam(lr=params["learning_rate"])
     model.compile(loss='binary_crossentropy', optimizer=opt)
         
@@ -78,21 +70,29 @@ def create_and_evaluate_model(params):
     lr_reducer = ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=100, verbose=0, mode='auto', epsilon=0.0001, cooldown=0, min_lr=0)
 
     # train the model, output generated text after each iteration
-    history = model.fit(X, y,
+    if dataset_name == "crm2":
+        history = model.fit_generator(dataset_manager.data_generator(dt_train, max_len, 2**params['batch_size']),
+                        validation_data=dataset_manager.data_generator(dt_val, max_len, 2**params['batch_size']),
+                            steps_per_epoch=int(np.ceil(len(dt_train)/2**params['batch_size'])),
+                            validation_steps=int(np.ceil(len(dt_val)/2**params['batch_size'])),
+              callbacks=[early_stopping, lr_reducer],
+                                      epochs=nb_epoch, verbose=2)
+    else:
+        history = model.fit(X, y,
                         validation_data=(X_val, y_val),
               callbacks=[early_stopping, lr_reducer],
               batch_size=2**params['batch_size'], epochs=nb_epoch, verbose=2)
     
     val_losses = [history.history['val_loss'][epoch] for epoch in range(len(history.history['loss']))]
-    #K.clear_session()
     del model
     
-    val_losses = val_losses[5:] # don't consider the first few epochs
+    val_losses = val_losses[5:] # don't consider the first few epochs because it may be very volatile
     best_epoch = np.argmin(val_losses)
     
     # save current trial results
     for k, v in params.items():
-        all_results.append((trial_nr, k, v, -1, val_losses[best_epoch]))
+        for epoch in range(len(history.history['loss'])):
+            all_results.append((trial_nr, k, v, -1, epoch, history.history['val_loss'][epoch]))
 
     return {'loss': val_losses[best_epoch], 'status': STATUS_OK, 'best_epoch': best_epoch+5}
 
@@ -111,8 +111,6 @@ random_state = 22
 dataset_manager = DatasetManager(dataset_name)
 data = dataset_manager.read_dataset()
 train, _ = dataset_manager.split_data_strict(data, train_ratio)
-#if "bpic2017" in dataset_name or "traffic" in dataset_name:
-#    train, _ = dataset_manager.split_data_strict(train, 0.625) # this makes it use 50% of the original data
 train, val = dataset_manager.split_val(train, val_ratio)
 
 if "traffic_fines" in dataset_name:
@@ -124,25 +122,27 @@ else:
 del data
     
 dt_train = dataset_manager.encode_data_for_lstm(train)
+print("Encoded train")
 del train
 dt_train = dt_train.sort_values(dataset_manager.timestamp_col, ascending=True, 
                                 kind="mergesort").groupby(dataset_manager.case_id_col).head(max_len)
 data_dim = dt_train.shape[1] - 3
-X, y = dataset_manager.generate_3d_data(dt_train, max_len)
-del dt_train
+if dataset_name != "crm2": # for crm2 we use data generator instead because of high memory usage
+    X, y = dataset_manager.generate_3d_data(dt_train, max_len)
+    del dt_train
 
 dt_val = dataset_manager.encode_data_for_lstm(val)
 del val
 dt_val = dt_val.sort_values(dataset_manager.timestamp_col, ascending=True, 
                             kind="mergesort").groupby(dataset_manager.case_id_col).head(max_len)
-X_val, y_val = dataset_manager.generate_3d_data(dt_val, max_len)
-del dt_val
+if dataset_name != "crm2":
+    X_val, y_val = dataset_manager.generate_3d_data(dt_val, max_len)
+    del dt_val
 
 space = {'lstmsize': scope.int(hp.qloguniform('lstmsize', np.log(10), np.log(150), 1)),
          'dropout': hp.uniform("dropout", 0, 0.3),
          'n_layers': scope.int(hp.quniform('n_layers', 1, 3, 1)),
          'batch_size': scope.int(hp.quniform('batch_size', 3, 6, 1)),
-         #'optimizer': hp.choice('optimizer', ["rmsprop", "adam"]),
          'learning_rate': hp.loguniform("learning_rate", np.log(0.000001), np.log(0.0001)),
          'l1': hp.loguniform("l1", np.log(0.00001), np.log(0.1)),
          'l2': hp.loguniform("l2", np.log(0.00001), np.log(0.1))}
@@ -164,7 +164,7 @@ outfile = os.path.join(PARAMS_DIR, "optimal_params_%s_%s_%s.pickle" % (cls_metho
 with open(outfile, "wb") as fout:
     pickle.dump(best_params, fout)
 
-dt_results = pd.DataFrame(all_results, columns=["iter", "param", "value", "nr_events", "score"])
+dt_results = pd.DataFrame(all_results, columns=["iter", "param", "value", "nr_events", "epoch", "score"])
 dt_results["dataset"] = dataset_name
 dt_results["cls"] = cls_method
 dt_results["method"] = method_name

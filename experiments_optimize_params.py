@@ -77,7 +77,7 @@ min_cases_for_training = 1
 if n_splits == 1:
     PARAMS_DIR = "val_results_unstructured"
 else:
-    PARAMS_DIR = "cv_results"
+    PARAMS_DIR = "cv_results_revision"
 
 # create directory
 if not os.path.exists(os.path.join(PARAMS_DIR)):

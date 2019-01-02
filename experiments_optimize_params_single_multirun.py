@@ -41,6 +41,7 @@ def create_and_evaluate_model(args):
         # read encoded data
         dt_train = pd.read_csv(os.path.join(folds_dir, "fold%s_train.csv" % cv_iter), sep=";")
         dt_test = pd.read_csv(os.path.join(folds_dir, "fold%s_test.csv" % cv_iter), sep=";")
+        dt_test = dt_test.fillna(0)
 
         with open(os.path.join(folds_dir, "fold%s_train_y.csv" % cv_iter), "rb") as fin:
             train_y = np.array(pickle.load(fin))
@@ -52,6 +53,7 @@ def create_and_evaluate_model(args):
             cls = ClassifierFactory.get_classifier(cls_method, args, None, min_cases_for_training,
                                                    class_ratios[cv_iter])
             cls.fit(dt_train, train_y)
+            print(dt_test.isnull().values.any())
             preds = cls.predict_proba(dt_test)
             preds_all = pd.concat([preds_all, pd.DataFrame({'predicted': preds,
                                                             'run': current_run,

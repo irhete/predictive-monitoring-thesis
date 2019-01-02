@@ -26,12 +26,6 @@ from DatasetManager import DatasetManager
 import EncoderFactory
 import ClassifierFactory
 
-PARAMS_DIR = "val_results_unstructured"
-
-# create directory
-if not os.path.exists(os.path.join(PARAMS_DIR)):
-    os.makedirs(os.path.join(PARAMS_DIR))
-
 def create_and_evaluate_model(args):
     global trial_nr, all_results
     trial_nr += 1
@@ -39,7 +33,8 @@ def create_and_evaluate_model(args):
     print("Trial %s out of %s" % (trial_nr, n_iter))
     
     start = time.time()
-    score = 0
+    score_auc = 0
+    preds_all = pd.DataFrame()
     
     cls_args = {k: v for k, v in args.items() if k in cls_params}
     text_transformer_args = {k: v for k, v in args.items() if k not in cls_params}
@@ -53,12 +48,8 @@ def create_and_evaluate_model(args):
         
         # fit text models and transform for each event
         if text_method in ["nb", "bong"]:
-            if dataset_ref in ["crm2", "github"] and cls_method == "xgboost" and "single" in bucket_enc:
-                if "index" in bucket_enc:
-                    text_transformer_args["nr_selected"] = 100
-                    cls_args['n_estimators'] = 200
-                else:
-                    text_transformer_args["nr_selected"] = 200
+            if dataset_ref in ["crm2", "github"] and cls_method == "xgboost" and "single" in method_name:
+                text_transformer_args["nr_selected"] = 200
             else:
                 text_transformer_args["nr_selected"] = 500
             if 'ngram_max' not in text_transformer_args:
@@ -132,19 +123,38 @@ def create_and_evaluate_model(args):
                 
         feature_combiner = FeatureUnion(encoders)
         
-        # fit classifier and predict
-        cls = ClassifierFactory.get_classifier(cls_method, cls_args, random_state, min_cases_for_training, class_ratios[cv_iter])
+        for current_run in range(n_runs):
+            # fit classifier and predict
+            cls = ClassifierFactory.get_classifier(cls_method, cls_args, None, min_cases_for_training, class_ratios[cv_iter])
 
-        if cls_method == "svm" or cls_method == "logit":
-            pipeline = Pipeline([('encoder', feature_combiner), ('scaler', StandardScaler()), ('cls', cls)])
-        else:
-            pipeline = Pipeline([('encoder', feature_combiner), ('cls', cls)])
+            if cls_method == "svm" or cls_method == "logit":
+                pipeline = Pipeline([('encoder', feature_combiner), ('scaler', StandardScaler()), ('cls', cls)])
+            else:
+                pipeline = Pipeline([('encoder', feature_combiner), ('cls', cls)])
 
-        pipeline.fit(dt_train_prefixes, train_y)
-        preds = pipeline.predict_proba(dt_test_prefixes)
+            pipeline.fit(dt_train_prefixes, train_y)
+            preds = pipeline.predict_proba(dt_test_prefixes)
+            preds_all = pd.concat([preds_all, pd.DataFrame({'predicted': preds,
+                                                            'run': current_run,
+                                                            'idx': range(len(preds))})], 
+                                  axis=0, sort=False)
 
-        if len(set(test_y)) >= 2:
-            score += roc_auc_score(test_y, preds)
+            score_auc += roc_auc_score(test_y, preds)
+            
+            del cls, pipeline
+
+    score_auc = score_auc / n_splits / n_runs
+    
+    mspd_acc = 0
+    for i in range(n_runs):
+        tmp1 = preds_all[preds_all.run==i]
+        for j in range(i):
+            tmp2 = preds_all[preds_all.run==j]
+            tmp_merged = tmp1.merge(tmp2, on=["idx"])
+
+            mspd_acc += 2.0 / (n_runs * (n_runs - 1)) * np.mean(np.power(tmp_merged.predicted_x - tmp_merged.predicted_y, 2))
+    
+    score = alpha * score_auc - beta * np.sqrt(mspd_acc)
     
     # save current trial results
     for k, v in cls_args.items():
@@ -152,34 +162,30 @@ def create_and_evaluate_model(args):
     for k, v in text_transformer_args.items():
         all_results.append((trial_nr, k, v, -1, score / n_splits))
 
-    return {'loss': -score / n_splits, 'status': STATUS_OK, 'model': cls}
+    return {'loss': -score / n_splits, 'status': STATUS_OK, 'model': None}
 
 
 dataset_ref = argv[1]
-bucket_enc = argv[2]
-text_method_enc = argv[3]
-cls_method = argv[4]
+method_name = argv[2]
+cls_method = argv[3]
+n_runs = int(argv[4]) # 5
 n_iter = int(argv[5])
+alpha = int(argv[6]) # 0 or 1
+beta = int(argv[7]) # 1 or 5
+params_dir = argv[8]
+
+text_method_enc = "bong"
 
 train_ratio = 0.8
 n_splits = 1
 random_state = 22
 min_cases_for_training = 1
 
-if "prefix_index" in bucket_enc:
-    bucket_method, cls_encoding, nr_events = bucket_enc.split("_")
-    nr_events = int(nr_events)
-else:
-    bucket_method, cls_encoding = bucket_enc.split("_")
-    nr_events = None
+bucket_method, cls_encoding = method_name.split("_")
+nr_events = None
     
-if "_" in text_method_enc:
-    text_method, text_enc = text_method_enc.split("_")
-else:
-    text_method = text_method_enc
-    text_enc = cls_encoding
-
-method_name = "%s_%s" % (bucket_enc, text_method_enc)
+text_method = text_method_enc
+text_enc = cls_encoding
 
 dataset_ref_to_datasets = {
     "bpic2011": ["bpic2011_f%s"%formula for formula in range(1,5)],
@@ -232,7 +238,6 @@ for dataset_name in datasets:
             
         else:
             train_chunk, test_chunk = dataset_manager.split_val(train, 0.2, split="random", seed=22)
-            
         pd.DataFrame(train_chunk).to_csv(os.path.join(folds_dir, "fold%s_train.csv" % cv_iter), sep=";", index=False)
         pd.DataFrame(test_chunk).to_csv(os.path.join(folds_dir, "fold%s_test.csv" % cv_iter), sep=";", index=False)
         class_ratios.append(dataset_manager.get_class_ratio(train_chunk))
@@ -283,7 +288,7 @@ for dataset_name in datasets:
         space["tfidf"] = hp.choice('tfidf', [True, False])
         
     elif text_method == "pv":
-        if dataset_ref == "crm2" and cls_method == "xgboost" and "single" in bucket_enc:
+        if dataset_ref == "crm2" and cls_method == "xgboost" and "single" in method_name:
             space["size"] = scope.int(hp.qloguniform('size', np.log(10), np.log(200), 1))
         else:
             space["size"] = scope.int(hp.qloguniform('size', np.log(10), np.log(400), 1))
@@ -305,7 +310,7 @@ for dataset_name in datasets:
     best_params = {'cls_args': cls_args, 'text_transformer_args': text_args}
     
     # write to file
-    outfile = os.path.join(PARAMS_DIR, "optimal_params_%s_%s_%s.pickle" % (cls_method, dataset_name, method_name))
+    outfile = os.path.join(params_dir, "optimal_params_%s_%s_%s.pickle" % (cls_method, dataset_name, method_name))
     with open(outfile, "wb") as fout:
         pickle.dump(best_params, fout)
         
@@ -314,7 +319,7 @@ for dataset_name in datasets:
     dt_results["cls"] = cls_method
     dt_results["method"] = method_name
     
-    outfile = os.path.join(PARAMS_DIR, "param_optim_all_trials_%s_%s_%s.csv" % (cls_method, dataset_name, method_name))
+    outfile = os.path.join(params_dir, "param_optim_all_trials_%s_%s_%s.csv" % (cls_method, dataset_name, method_name))
     dt_results.to_csv(outfile, sep=";", index=False)
 
     shutil.rmtree(folds_dir)

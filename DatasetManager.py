@@ -5,6 +5,7 @@ import numpy as np
 
 from sklearn.model_selection import StratifiedKFold
 from sklearn.preprocessing import MinMaxScaler
+from sklearn.feature_extraction.text import CountVectorizer
 try:
     from keras.preprocessing.sequence import pad_sequences
 except ImportError:
@@ -34,6 +35,7 @@ class DatasetManager:
         self.sorting_cols = [self.timestamp_col, self.activity_col]
         
         self.scaler = None
+        self.vectorizer = None
         self.encoded_cols = None
         
     
@@ -145,6 +147,9 @@ class DatasetManager:
     def get_pos_case_length_quantile(self, data, quantile=0.90):
         return int(np.ceil(data[data[self.label_col]==self.pos_label].groupby(self.case_id_col).size().quantile(quantile)))
 
+    def get_max_case_length(self, data):
+        return data[data[self.label_col]==self.pos_label].groupby(self.case_id_col).size().max()
+    
     def get_indexes(self, data):
         return data.groupby(self.case_id_col).first().index
 
@@ -203,10 +208,24 @@ class DatasetManager:
             dt_all = pd.DataFrame(self.scaler.transform(data[num_cols]), index=data.index, columns=num_cols)
             
         # one-hot encode categorical cols
-        dt_cat = pd.get_dummies(data[cat_cols])
+        if len(cat_cols) > 0:
+            dt_cat = pd.get_dummies(data[cat_cols])
+            dt_all = pd.concat([dt_all, dt_cat], axis=1, sort=False)
         
-        # merge
-        dt_all = pd.concat([dt_all, dt_cat], axis=1, sort=False)
+        # one-hot encode text columns
+        if len(self.dynamic_text_cols) > 0:
+            if self.vectorizer is None:
+                if self.dataset_name in ["github", "crm2"]:
+                    self.vectorizer = CountVectorizer(ngram_range=(1, 1), max_features=500)
+                else:
+                    self.vectorizer = CountVectorizer(ngram_range=(1, 1))
+                dt_text = self.vectorizer.fit_transform(data[self.dynamic_text_cols[0]].values.flatten('F'))
+            else:
+                dt_text = self.vectorizer.transform(data[self.dynamic_text_cols[0]].values.flatten('F'))
+            dt_text = pd.DataFrame(dt_text.toarray(), index=data.index, columns=["text_%s" % col for col in self.vectorizer.get_feature_names()])
+            dt_all = pd.concat([dt_all, dt_text], axis=1, sort=False)
+        
+        
         dt_all[self.case_id_col] = data[self.case_id_col]
         dt_all[self.label_col] = data[self.label_col].apply(lambda x: 1 if x == self.pos_label else 0)
         dt_all[self.timestamp_col] = data[self.timestamp_col]
@@ -222,7 +241,6 @@ class DatasetManager:
         return dt_all[self.encoded_cols]
     
     def generate_3d_data(self, data, max_len):
-        data = data.sort_values(self.timestamp_col, ascending=True, kind="mergesort").groupby(self.case_id_col).head(max_len)
         grouped = data.sort_values(self.timestamp_col, ascending=True, kind="mergesort").groupby(self.case_id_col)
 
         data_dim = data.shape[1] - 3
@@ -271,6 +289,7 @@ class DatasetManager:
         grouped = data.sort_values(self.timestamp_col, ascending=True, kind="mergesort").groupby(self.case_id_col)
 
         data_dim = data.shape[1] - 3
+        
         while 1:
             X = np.zeros((batch_size, max_len, data_dim), dtype=np.float32)
             y = np.zeros((batch_size, 2), dtype=np.float32)
@@ -285,9 +304,9 @@ class DatasetManager:
                     idx += 1
                     
                     if idx >= batch_size:
-                        yield {'main_input': X}, {'outcome_output': y}
+                        yield (X, y)
                         X = np.zeros((batch_size, max_len, data_dim), dtype=np.float32)
                         y = np.zeros((batch_size, 2), dtype=np.float32)
                         idx = 0
             if idx > 0:
-                yield {'main_input': X[:idx,:]}, {'outcome_output': y[:idx,:]}
+                yield (X[:idx,:], y[:idx,:])

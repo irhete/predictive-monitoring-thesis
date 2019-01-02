@@ -1,10 +1,10 @@
-"""This script trains and evaluates a predictive model for outcome-oriented predictive process monitoring.
+"""This script trains a predictive model for outcome-oriented predictive process monitoring and writes the predictions to a file.
 
 Usage:
-  experiments.py <dataset> <method> <classifier>
+    experiments_write_predictions_alarms.py <dataset> <method> <classifier>
 
 Example:
-    experiments.py bpic2012_cancelled single_laststate xgboost
+    experiments_write_predictions_alarms.py bpic2012_cancelled single_laststate xgboost
   
 Author: Irene Teinemaa [irene.teinemaa@gmail.com]
 """
