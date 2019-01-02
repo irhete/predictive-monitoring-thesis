@@ -44,13 +44,25 @@ Preprocessed datasets for predictive process monitoring:
    - ``experiments_write_predictions_stability.py``
    - ``experiments_write_predictions_stability_unstructured.py``
    - ``experiments_write_predictions_lstm.py``
+3. Evaluating prediction accuracy and temporal stability (RQ1)
+   - ``evaluate_accuracy_stability.ipynb``
+4. Evaluating prediction accuracy and temporal stability of inter-run-optimized models (RQ2)
+   - ``experiments_test_interrun_stability.py``
+   - ``experiments_test_interrun_stability_unstructured.py``
+5. Applying exponential smoothing (RQ3)
+   - ``evaluate_accuracy_stability.ipynb``
+6. Plots and tables
+   - ``generate_latex_tables.ipynb``
+   - ``plot_stability_results.R``
 
 ## Chapter 7: Alarm-Based Predictive Process Monitoring
 
 1. Hyperparameter optimization
-1.1. experiments_optimize_params.py
+   - ``experiments_optimize_params.py``
+   - ``experiments_optimize_params_with_unstructured_data.py``
 2. Training final models and writing predictions
-2.1. experiments_write_predictions_alarms.py
+   - ``experiments_write_predictions_alarms.py``
+   - ``experiments_write_predictions_alarms_unstructured.py``
 3. Optimizing alarm thresholds
 3.1. experiments_optimize_alarm_threshold.py
 3.2. experiments_optimize_alarm_threshold_ccom.py
